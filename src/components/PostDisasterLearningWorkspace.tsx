@@ -102,8 +102,8 @@ export const PostDisasterLearningWorkspace: React.FC<
           <div className="flex items-center gap-2 font-mono text-[11px]">
             <span className="text-cyan-400 font-bold">
               {activeTab === 'event-replay'
-                ? 'EVENT REPLAY & TEMPORAL STORM RECONSTRUCTION'
-                : `STAGE ${DISASTER_STAGE_INFO[params.stage]?.num ?? 4}: ${DISASTER_STAGE_INFO[params.stage]?.label.toUpperCase() ?? 'POST-DISASTER LEARNING & VALIDATION'}`}
+                ? `EVENT REPLAY — STAGE ${DISASTER_STAGE_INFO[params.stage]?.num ?? 4}: ${DISASTER_STAGE_INFO[params.stage]?.shortLabel.toUpperCase() ?? 'POST-DISASTER LEARN'}`
+                : `VALIDATION — STAGE ${DISASTER_STAGE_INFO[params.stage]?.num ?? 4}: ${DISASTER_STAGE_INFO[params.stage]?.shortLabel.toUpperCase() ?? 'POST-DISASTER LEARN'}`}
             </span>
             <span className="text-slate-600">·</span>
             <span className="text-emerald-300 font-semibold">
@@ -196,7 +196,6 @@ export const PostDisasterLearningWorkspace: React.FC<
                     drainageBlockagePct: preset.drainageBlockagePct,
                     upstreamKahnInflowMultiplier: preset.upstreamMultiplier,
                     timelineHourOffset: 0,
-                    stage: DisasterStage.REAL_TIME_ONGOING,
                   }))
                 }
                 className={`p-2.5 border cursor-pointer transition-colors ${

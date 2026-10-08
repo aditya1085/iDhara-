@@ -166,7 +166,7 @@ export function evaluateIsolatedTwinScenario(
   const isolatedParams: ScenarioParameters = {
     ...baseParams,
     mode: ProductMode.SIMULATED,
-    stage: DisasterStage.PRE_DISASTER_SCENARIO,
+    stage: baseParams.stage,
     rainfallIntensityMmHr: effectiveRainForModel,
     durationHours: Number((config.durationMinutes / 60).toFixed(2)),
     drainageBlockagePct: scenarioBlockage,

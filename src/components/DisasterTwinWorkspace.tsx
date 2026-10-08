@@ -548,7 +548,7 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#060911] p-4 space-y-3">
       {/* 0. MANDATORY DATA HONESTY STRIP (mode · scope · timestamp · confidence · freshness) */}
       <ScreenHonestyHeader
-        screenTitle={`DISASTER TWIN WORKSPACE — STAGE ${stageInfo.num}: ${stageInfo.label.toUpperCase()}`}
+        screenTitle={`DISASTER TWIN WORKSPACE — STAGE ${stageInfo.num}: ${stageInfo.shortLabel.toUpperCase()}`}
         screenSubtle={stageInfo.subtitle}
         mode={activeScenario.mode}
         scopeId={activeScenario.scope_id}

@@ -215,10 +215,27 @@ export default function App() {
   const [isShelterTableOpen, setIsShelterTableOpen] = useState<boolean>(false);
 
   const handleSelectStage = (stage: DisasterStage) => {
-    updateParamsWithHysteresis((prev) => ({
-      ...prev,
-      stage,
-    }));
+    updateParamsWithHysteresis((prev) => {
+      const preset = getPresetById(prev.activeEventPresetId);
+      const matchingStep = preset.hourlyRainProfile.find((s) => s.stage === stage);
+      const newHourOffset = matchingStep
+        ? matchingStep.hourOffset
+        : stage === DisasterStage.EARLY_WARNING
+        ? -3
+        : stage === DisasterStage.PRE_DISASTER_SCENARIO
+        ? -1
+        : stage === DisasterStage.REAL_TIME_ONGOING
+        ? 0
+        : 3;
+      const stepRain = matchingStep?.mmHr ?? prev.rainfallIntensityMmHr;
+
+      return {
+        ...prev,
+        stage,
+        timelineHourOffset: newHourOffset,
+        rainfallIntensityMmHr: stepRain,
+      };
+    });
   };
 
   // Modular Service Pipeline Execution (every injected observation enters this same pipeline)
@@ -1212,12 +1229,6 @@ export default function App() {
 
   const handleNavigateTab = (tab: NavigationTab) => {
     setActiveTab(tab);
-    if (tab === 'event-replay' || tab === 'validation') {
-      updateParamsWithHysteresis((prev) => ({
-        ...prev,
-        stage: DisasterStage.POST_DISASTER_LEARNING,
-      }));
-    }
   };
 
   const modeMeta = MODE_META[params.mode];

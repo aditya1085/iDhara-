@@ -180,7 +180,7 @@ export const DemoGuideModal: React.FC<DemoGuideModalProps> = ({
         onUpdateParams((prev) => ({
           ...prev,
           mode: ProductMode.HISTORICAL,
-          activeEventPresetId: 'EVT-HIST-2023-AUG-CLOUDBURST',
+          activeEventPresetId: 'EVT-HIST-SEP-2023',
           stage: DisasterStage.POST_DISASTER_LEARNING,
           timelineHourOffset: 0,
         }));
