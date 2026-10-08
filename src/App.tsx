@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ContextInspectorPanel } from './components/ContextInspectorPanel';
+import { DisasterTwinWorkspace } from './components/DisasterTwinWorkspace';
 import { IndoreFloodMap, MapInspectionTarget } from './components/IndoreFloodMap';
 import { ModuleWorkspace } from './components/ModuleWorkspaces';
 import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/SeverityVisuals';
@@ -455,42 +456,52 @@ export default function App() {
 
         {/* 3. LARGE CENTRAL GEOSPATIAL MAP + MODULE WORKSPACE */}
         <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden bg-[#05080E]">
-          <ModuleWorkspace
-            activeTab={activeTab}
-            params={params}
-            onUpdateParams={updateParamsWithHysteresis}
-            cells={cells}
-            roads={roads}
-            sensors={sensors}
-            shelters={shelters}
-            evacuationPlans={evacuationPlans}
-            routes={routes}
-            activeRouteId={activeRoute?.id ?? ''}
-            onSelectRouteId={setSelectedRouteId}
-            customOriginId={customOriginId}
-            customDestId={customDestId}
-            onChangeCustomRoute={handleChangeCustomRoute}
-            alerts={alerts}
-            onAcknowledgeAlert={handleAcknowledgeAlert}
-            validationReport={validationReport}
-            dataHealthReport={dataHealthReport}
-            activeRole={activeRole}
-            onSelectMapTarget={setSelectedTarget}
-            onNavigateTab={setActiveTab}
-          />
-
-          <div className="flex-1 min-h-[280px] overflow-hidden">
-            <IndoreFloodMap
-              mode={params.mode}
-              cells={cells}
-              roads={roads}
-              sensors={sensors}
-              shelters={shelters}
-              activeRoute={activeRoute}
+          {activeTab === 'disaster-twin' ? (
+            <DisasterTwinWorkspace
+              baselineParams={params}
               selectedTarget={selectedTarget}
               onSelectTarget={setSelectedTarget}
             />
-          </div>
+          ) : (
+            <>
+              <ModuleWorkspace
+                activeTab={activeTab}
+                params={params}
+                onUpdateParams={updateParamsWithHysteresis}
+                cells={cells}
+                roads={roads}
+                sensors={sensors}
+                shelters={shelters}
+                evacuationPlans={evacuationPlans}
+                routes={routes}
+                activeRouteId={activeRoute?.id ?? ''}
+                onSelectRouteId={setSelectedRouteId}
+                customOriginId={customOriginId}
+                customDestId={customDestId}
+                onChangeCustomRoute={handleChangeCustomRoute}
+                alerts={alerts}
+                onAcknowledgeAlert={handleAcknowledgeAlert}
+                validationReport={validationReport}
+                dataHealthReport={dataHealthReport}
+                activeRole={activeRole}
+                onSelectMapTarget={setSelectedTarget}
+                onNavigateTab={setActiveTab}
+              />
+
+              <div className="flex-1 min-h-[280px] overflow-hidden">
+                <IndoreFloodMap
+                  mode={params.mode}
+                  cells={cells}
+                  roads={roads}
+                  sensors={sensors}
+                  shelters={shelters}
+                  activeRoute={activeRoute}
+                  selectedTarget={selectedTarget}
+                  onSelectTarget={setSelectedTarget}
+                />
+              </div>
+            </>
+          )}
         </main>
 
         {/* 4. RIGHT INTELLIGENCE & ACTION PANEL */}
