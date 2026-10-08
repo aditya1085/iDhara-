@@ -1677,6 +1677,7 @@ export default function App() {
                   routeUpdateNotification={routeUpdateNotification}
                   selectedTarget={selectedTarget}
                   onSelectTarget={setSelectedTarget}
+                  activeTab={activeTab}
                 />
 
                 {/* Optional Expandable Modal/Drawer for Corridor Table */}

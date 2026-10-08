@@ -113,12 +113,12 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         </div>
       </div>
 
-      {/* 6 Injection Action Buttons */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 font-mono text-[11px]">
+      {/* 7 Injection Action Buttons */}
+      <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
         <button
           type="button"
           onClick={() => onInjectObservation('RAINFALL_INCREASE', selectedSensorId)}
-          className="px-2.5 py-1.5 bg-sky-950/50 hover:bg-sky-900/60 border border-sky-500/50 text-sky-200 text-left whitespace-nowrap transition-colors"
+          className="px-2 py-1.5 bg-sky-950/50 hover:bg-sky-900/60 border border-sky-500/50 text-sky-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           + Rainfall increase
         </button>
@@ -126,7 +126,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         <button
           type="button"
           onClick={() => onInjectObservation('WATER_LEVEL_INCREASE', selectedSensorId)}
-          className="px-2.5 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-500/50 text-cyan-200 text-left whitespace-nowrap transition-colors"
+          className="px-2 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-500/50 text-cyan-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           ▲ Water-level increase
         </button>
@@ -134,7 +134,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         <button
           type="button"
           onClick={() => onInjectObservation('ROAD_LIKELY_FLOODED', selectedRoadId)}
-          className="px-2.5 py-1.5 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/60 text-amber-200 text-left whitespace-nowrap transition-colors"
+          className="px-2 py-1.5 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/60 text-amber-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           ▲ Road likely flooded
         </button>
@@ -142,7 +142,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         <button
           type="button"
           onClick={() => onInjectObservation('ROAD_CLOSURE', selectedRoadId)}
-          className="px-2.5 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-500/50 text-rose-200 text-left whitespace-nowrap transition-colors"
+          className="px-2 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-500/50 text-rose-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           ✖ Road closure
         </button>
@@ -150,7 +150,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         <button
           type="button"
           onClick={() => onInjectObservation('ROAD_REOPENED', selectedRoadId)}
-          className="px-2.5 py-1.5 bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-200 text-left whitespace-nowrap transition-colors"
+          className="px-2 py-1.5 bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           ● Road reopened
         </button>
@@ -158,7 +158,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         <button
           type="button"
           onClick={() => onInjectObservation('CROWD_REPORT', selectedRoadId)}
-          className="px-2.5 py-1.5 bg-amber-950/50 hover:bg-amber-900/60 border border-amber-500/50 text-amber-200 text-left whitespace-nowrap transition-colors"
+          className="px-2 py-1.5 bg-amber-950/50 hover:bg-amber-900/60 border border-amber-500/50 text-amber-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           ⚑ Crowd report
         </button>
@@ -166,7 +166,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
         <button
           type="button"
           onClick={() => onInjectObservation('SENSOR_FAILURE', selectedSensorId)}
-          className="px-2.5 py-1.5 bg-purple-950/50 hover:bg-purple-900/60 border border-purple-500/50 text-purple-200 text-left whitespace-nowrap transition-colors"
+          className="col-span-2 px-2 py-1.5 bg-purple-950/50 hover:bg-purple-900/60 border border-purple-500/50 text-purple-200 text-left text-[10.5px] leading-snug break-words min-w-0 transition-colors cursor-pointer"
         >
           ⚡ Sensor failure
         </button>
@@ -176,9 +176,9 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
       <div className="bg-[#05080F] border border-slate-800/90 p-2.5">
         <div className="flex items-center justify-between font-mono text-[10px] text-slate-400 mb-1.5">
           <span>REAL-TIME OPERATIONS ACTIVITY FEED</span>
-          <span className="text-emerald-400">● STREAMING PIPELINE</span>
+          <span className="text-emerald-400 shrink-0">● STREAMING PIPELINE</span>
         </div>
-        <div className="space-y-1.5 max-h-40 overflow-y-auto font-mono text-[11px] tabular-nums pr-1">
+        <div className="space-y-1.5 max-h-40 overflow-y-auto overflow-x-hidden font-mono text-[11px] tabular-nums pr-1">
           {activityFeed.map((entry) => (
             <div
               key={entry.id}
@@ -197,7 +197,7 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
                   : 'border-cyan-400 text-slate-200'
               }`}
             >
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-slate-400">{entry.timestamp}</span>
                   {entry.eventTypeLabel && (
@@ -205,10 +205,10 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
                       {entry.eventTypeLabel}
                     </span>
                   )}
-                  <span className="font-medium">{entry.message}</span>
+                  <span className="font-medium break-words">{entry.message}</span>
                 </div>
                 {entry.detail && (
-                  <div className="text-[10px] text-slate-400 mt-0.5">
+                  <div className="text-[10px] text-slate-400 mt-0.5 break-words">
                     {entry.detail}
                   </div>
                 )}

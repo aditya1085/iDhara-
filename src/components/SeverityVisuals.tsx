@@ -321,28 +321,28 @@ export const ProvenanceStrip: React.FC<{
   const confPct = Math.round(provenance.confidence * 100);
 
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-slate-400 tabular-nums border-t border-slate-800/80 pt-2 mt-2">
-      <span className={`font-semibold ${modeMeta.accentText}`}>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-slate-400 tabular-nums border-t border-slate-800/80 pt-2 mt-2 break-words min-w-0">
+      <span className={`font-semibold ${modeMeta.accentText} break-words`}>
         {modeMeta.indicatorSymbol} MODE: {provenance.mode}
       </span>
       <span aria-hidden="true">·</span>
-      <span>SCOPE: {provenance.scope_id}</span>
+      <span className="break-words">SCOPE: {provenance.scope_id}</span>
       <span aria-hidden="true">·</span>
-      <span className="text-slate-300">CONF: {confPct}%</span>
+      <span className="text-slate-300 break-words">CONF: {confPct}%</span>
       <span aria-hidden="true">·</span>
-      <span className="text-emerald-400">FRESHNESS: {freshness}</span>
+      <span className="text-emerald-400 break-words">FRESHNESS: {freshness}</span>
       {!compact && (
         <>
           <span aria-hidden="true">·</span>
-          <span>TIMESTAMP: {genTime}</span>
+          <span className="break-words">TIMESTAMP: {genTime}</span>
           <span aria-hidden="true">·</span>
-          <span>AS_OF: {asOfTime}</span>
+          <span className="break-words">AS_OF: {asOfTime}</span>
         </>
       )}
       {expTime && (
         <>
           <span aria-hidden="true">·</span>
-          <span className="text-amber-300">EXP: {expTime}</span>
+          <span className="text-amber-300 break-words">EXP: {expTime}</span>
         </>
       )}
     </div>

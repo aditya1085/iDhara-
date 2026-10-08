@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CRITICAL_ASSETS,
   DRAINAGE_PROXIES,
@@ -10,6 +10,7 @@ import {
   FloodRiskCell,
   FloodSeverity,
   MapSurfaceMetric,
+  NavigationTab,
   ProductMode,
   RoadSegmentState,
   RoadStatus,
@@ -37,6 +38,7 @@ interface IndoreFloodMapProps {
   routeUpdateNotification?: RouteUpdateNotification | null;
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
+  activeTab?: NavigationTab;
 }
 
 const MAP_METRIC_OPTIONS: Array<{ id: MapSurfaceMetric; label: string }> = [
@@ -58,6 +60,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   routeUpdateNotification,
   selectedTarget,
   onSelectTarget,
+  activeTab,
 }) => {
   const [layers, setLayers] = useState({
     pilotBoundary: true,
@@ -79,9 +82,26 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [hoveredInfo, setHoveredInfo] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
   const [isRouteErrorDismissed, setIsRouteErrorDismissed] = useState<boolean>(false);
   const [isLegendCollapsed, setIsLegendCollapsed] = useState<boolean>(false);
+  const [isZoomControlsVisible, setIsZoomControlsVisible] = useState<boolean>(false);
+
+  // Close search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Reset dismiss state whenever active route changes
   useEffect(() => {
@@ -97,101 +117,133 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
   const cellSize = 1000 / 8; // 125 units per cell in 1000x1000 SVG space
 
-  // Search index across cells, roads, sensors, shelters, and critical assets
+  // Route error is only relevant if user is actively engaged in routing
+  const isRouteRelevant =
+    activeTab === 'roads-routing' ||
+    selectedTarget.type === 'ROAD' ||
+    Boolean(routeUpdateNotification);
+
+  // Zoom controls (+, −) must not appear by default at 100% zoom; only when zoomed or hovering
+  const showZoomButtons = zoom !== 1 || isZoomControlsVisible;
+
+  // Search index across all 64 study-area localities, plus roads, sensors, shelters, and critical assets
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
 
-    const matches: Array<{
+    // Map all 64 cells from current 5x5 km pilot study area
+    const areaMatches: Array<{
       label: string;
       subLabel: string;
       target: MapInspectionTarget;
       x: number;
       y: number;
+      category: 'AREA' | 'ROAD' | 'SENSOR' | 'SHELTER' | 'ASSET';
     }> = [];
 
     cells.forEach((c) => {
-      if (
+      const matches =
+        !q ||
         c.localityName.toLowerCase().includes(q) ||
         c.wardCode.toLowerCase().includes(q) ||
-        c.id.toLowerCase().includes(q)
-      ) {
-        matches.push({
+        c.id.toLowerCase().includes(q);
+
+      if (matches) {
+        areaMatches.push({
           label: `${c.localityName} (${c.wardCode})`,
-          subLabel: `Flood Cell · ${Math.round(c.floodProbability * 100)}% prob · ${c.severity}`,
+          subLabel: `Study Area · ${Math.round(c.floodProbability * 100)}% flood prob · ${c.severity} · ${c.elevationM}m MSL`,
           target: { type: 'CELL', id: c.id },
           x: (c.col + 0.5) * cellSize,
           y: (c.row + 0.5) * cellSize,
+          category: 'AREA',
         });
       }
     });
 
-    roads.forEach((r) => {
-      if (r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q)) {
-        const f = nodeMap.get(r.fromNodeId);
-        const t = nodeMap.get(r.toNodeId);
-        matches.push({
-          label: r.name,
-          subLabel: `Road (${r.id}) · ${r.currentState}`,
-          target: { type: 'ROAD', id: r.id },
-          x: f && t ? (f.x + t.x) / 2 : 500,
-          y: f && t ? (f.y + t.y) / 2 : 500,
-        });
-      }
-    });
+    const otherMatches: Array<{
+      label: string;
+      subLabel: string;
+      target: MapInspectionTarget;
+      x: number;
+      y: number;
+      category: 'AREA' | 'ROAD' | 'SENSOR' | 'SHELTER' | 'ASSET';
+    }> = [];
 
-    sensors.forEach((s) => {
-      if (s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) {
-        matches.push({
-          label: `${s.name} (${s.id})`,
-          subLabel: `Sensor · ${s.currentValue} ${s.unit}`,
-          target: { type: 'SENSOR', id: s.id },
-          x: s.x,
-          y: s.y,
-        });
-      }
-    });
+    if (q) {
+      roads.forEach((r) => {
+        if (r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q)) {
+          const f = nodeMap.get(r.fromNodeId);
+          const t = nodeMap.get(r.toNodeId);
+          otherMatches.push({
+            label: r.name,
+            subLabel: `Road Corridor (${r.id}) · ${r.currentState}`,
+            target: { type: 'ROAD', id: r.id },
+            x: f && t ? (f.x + t.x) / 2 : 500,
+            y: f && t ? (f.y + t.y) / 2 : 500,
+            category: 'ROAD',
+          });
+        }
+      });
 
-    shelters.forEach((sh) => {
-      if (sh.name.toLowerCase().includes(q) || sh.id.toLowerCase().includes(q)) {
-        matches.push({
-          label: sh.name,
-          subLabel: `Shelter (${sh.id}) · ${sh.currentOccupancy}/${sh.totalCapacity}`,
-          target: { type: 'SHELTER', id: sh.id },
-          x: sh.x,
-          y: sh.y,
-        });
-      }
-    });
+      sensors.forEach((s) => {
+        if (s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) {
+          otherMatches.push({
+            label: `${s.name} (${s.id})`,
+            subLabel: `Sensor Gauge · ${s.currentValue} ${s.unit}`,
+            target: { type: 'SENSOR', id: s.id },
+            x: s.x,
+            y: s.y,
+            category: 'SENSOR',
+          });
+        }
+      });
 
-    CRITICAL_ASSETS.forEach((a) => {
-      if (a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)) {
-        matches.push({
-          label: a.name,
-          subLabel: `Critical Asset (${a.category})`,
-          target: { type: 'ASSET', id: a.id },
-          x: a.x,
-          y: a.y,
-        });
-      }
-    });
+      shelters.forEach((sh) => {
+        if (sh.name.toLowerCase().includes(q) || sh.id.toLowerCase().includes(q)) {
+          otherMatches.push({
+            label: sh.name,
+            subLabel: `Relief Shelter (${sh.id}) · Capacity ${sh.totalCapacity}`,
+            target: { type: 'SHELTER', id: sh.id },
+            x: sh.x,
+            y: sh.y,
+            category: 'SHELTER',
+          });
+        }
+      });
 
-    return matches.slice(0, 8);
+      CRITICAL_ASSETS.forEach((a) => {
+        if (a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)) {
+          otherMatches.push({
+            label: a.name,
+            subLabel: `Critical Asset (${a.category})`,
+            target: { type: 'ASSET', id: a.id },
+            x: a.x,
+            y: a.y,
+            category: 'ASSET',
+          });
+        }
+      });
+    }
+
+    return [...areaMatches, ...otherMatches];
   }, [searchQuery, cells, roads, sensors, shelters, nodeMap, cellSize]);
 
   const handleResetPilotOverview = () => {
     setZoom(1);
     setPanOffset({ x: 0, y: 0 });
     setSearchQuery('');
+    setIsSearchOpen(false);
   };
 
-  const handleFocusTarget = (target: MapInspectionTarget, x: number, y: number) => {
+  const handleFocusTarget = (target: MapInspectionTarget, x: number, y: number, name?: string) => {
     onSelectTarget(target);
-    setZoom(1.35);
-    const offsetX = Math.max(-180, Math.min(180, (500 - x) * 0.35));
-    const offsetY = Math.max(-180, Math.min(180, (500 - y) * 0.35));
+    setZoom(1.4);
+    const offsetX = Math.max(-320, Math.min(320, 500 - x));
+    const offsetY = Math.max(-320, Math.min(320, 500 - y));
     setPanOffset({ x: Math.round(offsetX), y: Math.round(offsetY) });
-    setSearchQuery('');
+    setIsSearchOpen(false);
+    if (name) {
+      setSearchQuery(name);
+    }
   };
 
   return (
@@ -199,43 +251,94 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
       {/* Top Map Toolbar: Search, Pilot Overview Button, 5-Metric Surface Switcher, Layer & Zoom Controls */}
       <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[#0A0F1A] border-b border-slate-800/90 z-20 shrink-0 overflow-x-auto">
         {/* Left: Map Search Input + Pilot Overview Reset */}
-        <div className="flex items-center gap-1.5 relative shrink-0">
-          <div className="relative w-36 sm:w-48">
+        <div ref={searchContainerRef} className="flex items-center gap-1.5 relative shrink-0">
+          <div className="relative w-44 sm:w-60">
             <input
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search ward, road…"
-              aria-label="Search Indore pilot map entities"
-              className="w-full bg-[#060911] border border-slate-700/90 focus:border-cyan-400 text-xs font-mono text-slate-100 px-2 py-1 outline-none placeholder:text-slate-500"
+              onFocus={() => setIsSearchOpen(true)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setIsSearchOpen(true);
+              }}
+              placeholder="Search all 64 study areas…"
+              aria-label="Search all 64 Indore 5x5 km pilot areas"
+              className="w-full bg-[#060911] border border-slate-700/90 focus:border-cyan-400 text-xs font-mono text-slate-100 pl-2 pr-12 py-1 outline-none placeholder:text-slate-500"
             />
-            {searchQuery && (
+            <div className="absolute right-1 top-1 flex items-center gap-0.5">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setIsSearchOpen(true);
+                  }}
+                  className="px-1 text-xs font-mono text-slate-400 hover:text-white cursor-pointer"
+                  title="Clear search"
+                >
+                  ×
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1 text-xs font-mono text-slate-400 hover:text-white"
+                onClick={() => setIsSearchOpen((prev) => !prev)}
+                className="px-1 text-[10px] font-mono text-slate-400 hover:text-cyan-300 cursor-pointer"
+                title="Browse all 64 study areas"
               >
-                ×
+                {isSearchOpen ? '▲' : '▼'}
               </button>
-            )}
+            </div>
 
-            {searchResults.length > 0 && (
-              <div className="absolute left-0 top-full mt-1 w-80 bg-[#0B101B] border border-slate-700 shadow-xl z-30 divide-y divide-slate-800/80 max-h-64 overflow-y-auto">
-                {searchResults.map((item, idx) => (
-                  <button
-                    key={`${item.target.type}-${item.target.id}-${idx}`}
-                    type="button"
-                    onClick={() => handleFocusTarget(item.target, item.x, item.y)}
-                    className="w-full text-left px-3 py-2 hover:bg-slate-800/90 transition-colors block"
-                  >
-                    <div className="text-xs font-medium text-white truncate">
-                      {item.label}
-                    </div>
-                    <div className="text-[10.5px] font-mono text-cyan-300 truncate">
-                      {item.subLabel}
-                    </div>
-                  </button>
-                ))}
+            {isSearchOpen && (
+              <div className="absolute left-0 top-full mt-1 w-80 sm:w-96 bg-[#0B101B] border border-slate-700 shadow-2xl z-40 max-h-72 overflow-y-auto">
+                <div className="sticky top-0 bg-[#0E1524] px-3 py-1.5 border-b border-slate-800 text-[10.5px] font-mono text-cyan-300 flex items-center justify-between z-10">
+                  <span>
+                    {searchQuery.trim()
+                      ? `MATCHING ENTITIES (${searchResults.length})`
+                      : `ALL 5×5 KM STUDY AREAS (${searchResults.length})`}
+                  </span>
+                  <span className="text-[9.5px] text-slate-400">Click to focus on map</span>
+                </div>
+
+                {searchResults.length === 0 ? (
+                  <div className="p-3 text-xs text-slate-400 font-mono text-center">
+                    No areas found matching “{searchQuery}”
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-800/80">
+                    {searchResults.map((item, idx) => {
+                      const isCurrentlySelected =
+                        selectedTarget.type === item.target.type &&
+                        selectedTarget.id === item.target.id;
+                      return (
+                        <button
+                          key={`${item.target.type}-${item.target.id}-${idx}`}
+                          type="button"
+                          onClick={() => handleFocusTarget(item.target, item.x, item.y, item.label)}
+                          className={`w-full text-left px-3 py-2 transition-colors block cursor-pointer ${
+                            isCurrentlySelected
+                              ? 'bg-cyan-950/60 border-l-2 border-cyan-400'
+                              : 'hover:bg-slate-800/90'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="text-xs font-medium text-white truncate">
+                              {item.label}
+                            </span>
+                            {item.category === 'AREA' && (
+                              <span className="text-[9.5px] font-mono px-1 py-0.2 bg-slate-800 text-slate-300 shrink-0">
+                                Area
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10.5px] font-mono text-cyan-300 truncate mt-0.5">
+                            {item.subLabel}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -243,7 +346,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           <button
             type="button"
             onClick={handleResetPilotOverview}
-            className="px-2.5 py-1 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
+            className="px-2.5 py-1 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors cursor-pointer"
             title="Reset viewport to full 5km × 5km Indore Pilot Overview"
           >
             ⌖ Overview
@@ -331,26 +434,40 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </div>
           )}
 
-          <div className="flex items-center bg-[#060911] border border-slate-700">
-            <button
-              type="button"
-              onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
-              className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap"
-              title="Zoom Out"
+          {/* Zoom Controls: +, − are hidden by default at 100% zoom; shown only when hovering or when zoomed */}
+          <div
+            className="flex items-center bg-[#060911] border border-slate-700 transition-all"
+            onMouseEnter={() => setIsZoomControlsVisible(true)}
+            onMouseLeave={() => setIsZoomControlsVisible(false)}
+          >
+            {showZoomButtons && (
+              <button
+                type="button"
+                onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
+                className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer"
+                title="Zoom Out"
+              >
+                −
+              </button>
+            )}
+            <span
+              className={`px-2 py-1 text-[11px] text-slate-300 tabular-nums ${
+                showZoomButtons ? 'border-x border-slate-800' : ''
+              }`}
+              title="Current Zoom Level"
             >
-              −
-            </button>
-            <span className="px-2 text-[11px] text-slate-300 tabular-nums border-x border-slate-800">
               {Math.round(zoom * 100)}%
             </span>
-            <button
-              type="button"
-              onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
-              className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap"
-              title="Zoom In"
-            >
-              +
-            </button>
+            {showZoomButtons && (
+              <button
+                type="button"
+                onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
+                className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer"
+                title="Zoom In"
+              >
+                +
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -379,8 +496,12 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           </div>
         )}
 
-        {/* Operational No Feasible Route State (Standardized & Non-disruptive) */}
-        {!routeUpdateNotification && activeRoute && !activeRoute.feasible && !isRouteErrorDismissed && (
+        {/* Operational No Feasible Route State (Standardized & Non-disruptive, shown only when relevant) */}
+        {!routeUpdateNotification &&
+          isRouteRelevant &&
+          activeRoute &&
+          !activeRoute.feasible &&
+          !isRouteErrorDismissed && (
           <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
             <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
