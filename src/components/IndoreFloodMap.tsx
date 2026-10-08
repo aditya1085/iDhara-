@@ -349,11 +349,12 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
       </div>
 
       {/* Main Interactive SVG Geospatial Viewport */}
-      <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070C]">
-        {/* Top-Left Data Honesty HUD Stamp on Map (mode · scope · timestamp · confidence · freshness) */}
-        <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-[#070B13]/95 border border-slate-800 px-2.5 py-1 font-mono text-[10.5px] tabular-nums">
-          <span className={`font-semibold ${modeMeta.accentText}`}>
-            {modeMeta.indicatorSymbol} MODE: {mode}
+      <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070D] geospatial-grid-bg">
+        {/* Top-Left Data Honesty HUD Stamp on Map (Unmistakable mode · scope · timestamp · confidence · freshness) */}
+        <div className={`absolute top-2.5 left-2.5 z-10 pointer-events-none flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1 font-mono text-[10.5px] tabular-nums border ${modeMeta.borderClass} ${modeMeta.bgClass}`}>
+          <span className={`font-bold flex items-center gap-1 ${modeMeta.accentText}`}>
+            <span>{modeMeta.indicatorSymbol}</span>
+            <span>MODE: {mode}</span>
           </span>
           <span className="text-slate-600">·</span>
           <span className="text-slate-300">
@@ -382,7 +383,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         {/* Top-Right Live Route Subscription / Rerouting Status Banner */}
         {routeUpdateNotification && (
-          <div className="absolute top-3 right-3 z-10 max-w-sm bg-amber-950/95 border border-amber-400/80 px-3 py-2 font-mono text-[11px] shadow-xl pointer-events-none">
+          <div className="absolute top-3 right-3 z-10 max-w-sm bg-[#160B08] border border-amber-400 px-3 py-2 font-mono text-[11px] shadow-2xl pointer-events-none">
             <div className="flex items-center justify-between gap-2 text-amber-300 font-bold">
               <span>⚡ {routeUpdateNotification.bannerTitle}</span>
               <span className="text-[10px] text-amber-200">{routeUpdateNotification.timestamp}</span>
@@ -397,7 +398,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         )}
 
         {!routeUpdateNotification && activeRoute && !activeRoute.feasible && (
-          <div className="absolute top-3 right-3 z-10 max-w-sm bg-rose-950/95 border border-rose-500/80 px-3 py-2 font-mono text-[11px] shadow-xl pointer-events-none">
+          <div className="absolute top-3 right-3 z-10 max-w-sm bg-[#1C080B] border border-rose-500 px-3 py-2 font-mono text-[11px] shadow-2xl pointer-events-none">
             <div className="text-rose-300 font-bold">✖ NO FEASIBLE ROUTE</div>
             <div className="text-slate-200 text-[10.5px] mt-0.5">
               {activeRoute.noRouteInfo?.reason}
@@ -430,7 +431,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             >
               <path
                 d="M 0,16 L 16,0 M 0,0 L 16,16"
-                stroke="rgba(248, 113, 113, 0.45)"
+                stroke="rgba(248, 113, 113, 0.55)"
                 strokeWidth="1.5"
               />
             </pattern>
@@ -443,7 +444,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             >
               <path
                 d="M -2,14 L 14,-2 M 6,16 L 16,6"
-                stroke="rgba(251, 146, 60, 0.45)"
+                stroke="rgba(251, 146, 60, 0.55)"
                 strokeWidth="1.5"
               />
             </pattern>
@@ -454,26 +455,53 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               height="12"
               patternUnits="userSpaceOnUse"
             >
-              <circle cx="4" cy="4" r="1.5" fill="rgba(250, 204, 21, 0.48)" />
-              <circle cx="10" cy="10" r="1.5" fill="rgba(250, 204, 21, 0.48)" />
+              <circle cx="4" cy="4" r="1.5" fill="rgba(250, 204, 21, 0.55)" />
+              <circle cx="10" cy="10" r="1.5" fill="rgba(250, 204, 21, 0.55)" />
             </pattern>
 
             <radialGradient id="heatmap-critical" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#EF4444" stopOpacity="0.60" />
-              <stop offset="48%" stopColor="#F97316" stopOpacity="0.30" />
-              <stop offset="82%" stopColor="#0EA5E9" stopOpacity="0.10" />
+              <stop offset="0%" stopColor="#EF4444" stopOpacity="0.72" />
+              <stop offset="35%" stopColor="#DC2626" stopOpacity="0.55" />
+              <stop offset="65%" stopColor="#F97316" stopOpacity="0.25" />
+              <stop offset="90%" stopColor="#0EA5E9" stopOpacity="0.08" />
               <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
             </radialGradient>
 
             <radialGradient id="heatmap-high" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#F97316" stopOpacity="0.45" />
-              <stop offset="55%" stopColor="#EAB308" stopOpacity="0.20" />
+              <stop offset="0%" stopColor="#F97316" stopOpacity="0.55" />
+              <stop offset="45%" stopColor="#EA580C" stopOpacity="0.35" />
+              <stop offset="75%" stopColor="#EAB308" stopOpacity="0.18" />
               <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
             </radialGradient>
 
             <filter id="route-glow" x="-20%" y="-20%" width="140%" height="140%">
               <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor="#22D3EE" floodOpacity="0.85" />
             </filter>
+
+            {/* Directional Chevrons for Route and Evacuation Flow */}
+            <marker
+              id="arrow-route"
+              viewBox="0 0 10 10"
+              refX="6"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#22D3EE" />
+            </marker>
+
+            <marker
+              id="arrow-evac"
+              viewBox="0 0 10 10"
+              refX="6"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 2 L 7 5 L 0 8 z" fill="#34D399" />
+            </marker>
           </defs>
 
           {/* 0. Continuous Flood-Risk Heatmap Glow Underlay */}
@@ -746,7 +774,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               );
             })}
 
-          {/* 2. Explicit 5km × 5km Pilot Boundary Frame */}
+          {/* 2. Explicit 5km × 5km Pilot Boundary Frame & Precision Geospatial Reticles */}
           {layers.pilotBoundary && (
             <g pointerEvents="none">
               <rect
@@ -755,8 +783,8 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 width="1000"
                 height="1000"
                 fill="none"
-                stroke="#38BDF8"
-                strokeWidth="2.5"
+                stroke="#0284C7"
+                strokeWidth="2"
                 strokeDasharray="12 6"
               />
               <text
@@ -780,6 +808,43 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               >
                 SE BOUNDARY ({PILOT_BOUNDS.minLat}°N, {PILOT_BOUNDS.maxLng}°E)
               </text>
+
+              {/* Four Corner Reticles (+) & Geographic Coordinates */}
+              <g stroke="#38BDF8" strokeWidth="1.2" opacity="0.8">
+                {/* NW Reticle */}
+                <path d="M 6,18 L 30,18 M 18,6 L 18,30" />
+                <text x="34" y="22" fill="#7DD3FC" fontSize="9" fontFamily="IBM Plex Mono, monospace" stroke="none">
+                  22.7500°N · 75.8450°E
+                </text>
+
+                {/* NE Reticle */}
+                <path d="M 970,18 L 994,18 M 982,6 L 982,30" />
+                <text x="965" y="22" textAnchor="end" fill="#7DD3FC" fontSize="9" fontFamily="IBM Plex Mono, monospace" stroke="none">
+                  22.7500°N · 75.8950°E
+                </text>
+
+                {/* SW Reticle */}
+                <path d="M 6,982 L 30,982 M 18,970 L 18,994" />
+                <text x="34" y="986" fill="#7DD3FC" fontSize="9" fontFamily="IBM Plex Mono, monospace" stroke="none">
+                  22.7050°N · 75.8450°E
+                </text>
+
+                {/* SE Reticle */}
+                <path d="M 970,982 L 994,982 M 982,970 L 982,994" />
+                <text x="965" y="986" textAnchor="end" fill="#7DD3FC" fontSize="9" fontFamily="IBM Plex Mono, monospace" stroke="none">
+                  22.7050°N · 75.8950°E
+                </text>
+              </g>
+
+              {/* Tactical North Arrow Indicator */}
+              <g transform="translate(950, 60)">
+                <circle cx="0" cy="0" r="14" fill="#0A0F1A" stroke="#38BDF8" strokeWidth="1.2" />
+                <path d="M 0,-10 L 5,3 L 0,0 L -5,3 Z" fill="#38BDF8" />
+                <path d="M 0,0 L 5,3 L 0,8 L -5,3 Z" fill="#1E293B" />
+                <text x="0" y="-13" textAnchor="middle" fill="#BAE6FD" fontSize="8" fontFamily="IBM Plex Mono, monospace" fontWeight="700">
+                  N
+                </text>
+              </g>
             </g>
           )}
 
@@ -879,25 +944,29 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     road.currentState === RoadStatus.AT_RISK) && (
                     <g transform={`translate(${midX}, ${midY})`}>
                       <rect
-                        x="-12"
-                        y="-9"
-                        width="24"
-                        height="18"
-                        rx="3"
-                        fill="#090D16"
+                        x="-24"
+                        y="-8"
+                        width="48"
+                        height="16"
+                        rx="1"
+                        fill="#060911"
                         stroke={statusMeta.strokeColor}
-                        strokeWidth="1.5"
+                        strokeWidth="1.2"
                       />
                       <text
                         x="0"
-                        y="4"
+                        y="3.5"
                         textAnchor="middle"
                         fill={statusMeta.strokeColor}
-                        fontSize="10"
+                        fontSize="8.5"
                         fontFamily="IBM Plex Mono, monospace"
                         fontWeight="700"
                       >
-                        {statusMeta.glyph}
+                        {road.currentState === RoadStatus.CLOSED
+                          ? '✖ CLOSED'
+                          : road.currentState === RoadStatus.LIKELY_FLOODED
+                          ? '▲ FLOODED'
+                          : '◆ AT RISK'}
                       </text>
                     </g>
                   )}
@@ -1027,6 +1096,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                       strokeWidth="4.5"
                       strokeDasharray="12 6"
                       strokeLinecap="round"
+                      markerEnd="url(#arrow-route)"
                       filter="url(#route-glow)"
                     >
                       <animate
@@ -1155,9 +1225,38 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 );
               })}
 
+              {/* Evacuation Flow Vectors from Critical Hotspots to Reachable Shelters */}
+              {cells
+                .filter((c) => c.severity === FloodSeverity.CRITICAL && c.floodProbability >= 0.72)
+                .map((critCell) => {
+                  const cellCenterX = (critCell.col + 0.5) * cellSize;
+                  const cellCenterY = (critCell.row + 0.5) * cellSize;
+                  const nearestReachableShelter = shelters.find(
+                    (s) => s.reachable && s.remainingCapacity > 0
+                  );
+                  if (!nearestReachableShelter) return null;
+
+                  return (
+                    <g key={`evac-flow-${critCell.id}`} pointerEvents="none">
+                      <line
+                        x1={cellCenterX}
+                        y1={cellCenterY}
+                        x2={nearestReachableShelter.x}
+                        y2={nearestReachableShelter.y}
+                        stroke="#059669"
+                        strokeWidth="2"
+                        strokeDasharray="6 4"
+                        opacity="0.65"
+                        markerEnd="url(#arrow-evac)"
+                      />
+                    </g>
+                  );
+                })}
+
               {shelters.map((sh) => {
                 const isSelected =
                   selectedTarget.type === 'SHELTER' && selectedTarget.id === sh.id;
+                const occPct = Math.round((sh.currentOccupancy / Math.max(1, sh.totalCapacity)) * 100);
                 return (
                   <g
                     key={sh.id}
@@ -1168,28 +1267,48 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     }}
                     onMouseEnter={() =>
                       setHoveredInfo(
-                        `SHELTER ${sh.id}: ${sh.name} · Occupancy ${sh.currentOccupancy}/${sh.totalCapacity} · Elev ${sh.elevationM}m MSL`
+                        `SHELTER ${sh.id}: ${sh.name} · Occupancy ${sh.currentOccupancy}/${sh.totalCapacity} (${occPct}%) · Elev ${sh.elevationM}m MSL`
                       )
                     }
                     onMouseLeave={() => setHoveredInfo(null)}
                     className="cursor-pointer"
                   >
                     <polygon
-                      points="0,-13 12,10 -12,10"
+                      points="0,-14 13,9 -13,9"
                       fill="#064E3B"
                       stroke={isSelected ? '#38BDF8' : '#34D399'}
                       strokeWidth={isSelected ? 2.5 : 1.8}
                     />
                     <text
                       x="0"
-                      y="7"
+                      y="6"
                       textAnchor="middle"
                       fill="#A7F3D0"
-                      fontSize="9.5"
+                      fontSize="9"
                       fontFamily="IBM Plex Mono, monospace"
                       fontWeight="700"
                     >
-                      S
+                      ▲
+                    </text>
+                    <rect
+                      x="-22"
+                      y="12"
+                      width="44"
+                      height="12"
+                      fill="#060911"
+                      stroke="#059669"
+                      strokeWidth="0.8"
+                    />
+                    <text
+                      x="0"
+                      y="21"
+                      textAnchor="middle"
+                      fill="#A7F3D0"
+                      fontSize="8"
+                      fontFamily="IBM Plex Mono, monospace"
+                      fontWeight="600"
+                    >
+                      {sh.currentOccupancy}/{sh.totalCapacity}
                     </text>
                   </g>
                 );

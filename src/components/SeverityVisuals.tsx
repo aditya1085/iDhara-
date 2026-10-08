@@ -225,39 +225,49 @@ export const MODE_META: Record<
     borderClass: string;
     bgClass: string;
     indicatorSymbol: string;
+    watermarkLabel: string;
+    chipStyle: string;
   }
 > = {
+  [ProductMode.LIVE]: {
+    label: 'LIVE',
+    shortDesc: 'Live Municipal Telemetry Stream (Synthetic Sensors Active)',
+    accentText: 'text-emerald-400',
+    borderClass: 'border-emerald-500/80',
+    bgClass: 'bg-[#031A12]',
+    indicatorSymbol: '●',
+    watermarkLabel: 'LIVE TELEMETRY STREAM',
+    chipStyle: 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/80 shadow-[0_0_12px_rgba(16,185,129,0.25)]',
+  },
   [ProductMode.SIMULATED]: {
     label: 'SIMULATED',
-    shortDesc: 'Synthetic Hydrological-Terrain Proxy Scenario',
+    shortDesc: 'Hydrological-Terrain Simulation (Digital Twin Scenario)',
     accentText: 'text-cyan-300',
-    borderClass: 'border-cyan-500/60',
-    bgClass: 'bg-cyan-950/40',
+    borderClass: 'border-cyan-500/70',
+    bgClass: 'bg-[#041424]',
     indicatorSymbol: '◈',
+    watermarkLabel: 'HYDRAULIC TWIN MODEL',
+    chipStyle: 'bg-cyan-950/80 text-cyan-200 border border-cyan-400/80',
   },
   [ProductMode.HISTORICAL]: {
     label: 'HISTORICAL',
-    shortDesc: 'Archived Indore Cloudburst Replay',
+    shortDesc: 'Archived Indore Cloudburst Replay (Historical Log)',
     accentText: 'text-amber-300',
-    borderClass: 'border-amber-500/60',
-    bgClass: 'bg-amber-950/40',
+    borderClass: 'border-amber-500/70',
+    bgClass: 'bg-[#1C1204]',
     indicatorSymbol: '◷',
+    watermarkLabel: 'ARCHIVED EVENT REPLAY',
+    chipStyle: 'bg-amber-950/80 text-amber-200 border border-amber-400/80',
   },
   [ProductMode.MOCK]: {
     label: 'MOCK',
-    shortDesc: 'Deterministic Stress Benchmark Payload',
-    accentText: 'text-purple-300',
-    borderClass: 'border-purple-500/60',
-    bgClass: 'bg-purple-950/40',
+    shortDesc: 'Deterministic Stress Benchmark (Offline Stub Bench)',
+    accentText: 'text-fuchsia-300',
+    borderClass: 'border-fuchsia-500/70',
+    bgClass: 'bg-[#180A26]',
     indicatorSymbol: '▣',
-  },
-  [ProductMode.LIVE]: {
-    label: 'LIVE',
-    shortDesc: 'Pilot Telemetry Ingestion Loop (Synthetic Indore Feed)',
-    accentText: 'text-emerald-300',
-    borderClass: 'border-emerald-500/60',
-    bgClass: 'bg-emerald-950/40',
-    indicatorSymbol: '◉',
+    watermarkLabel: 'SYNTHETIC TEST BENCH',
+    chipStyle: 'bg-fuchsia-950/80 text-fuchsia-200 border border-fuchsia-400/80',
   },
 };
 

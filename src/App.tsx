@@ -1190,13 +1190,13 @@ export default function App() {
         {/* Center: Unmistakable Mode Switcher + Core Command Telemetry */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-xs tabular-nums">
           {/* Impossible-to-miss Mode Badge & Switcher */}
-          <div className="flex items-center gap-1 bg-[#05080F] p-1 border border-slate-700/90">
+          <div className="flex items-center gap-1 bg-[#060A12] p-1 border border-slate-700/80">
             {(
               [
+                ProductMode.LIVE,
                 ProductMode.SIMULATED,
                 ProductMode.HISTORICAL,
                 ProductMode.MOCK,
-                ProductMode.LIVE,
               ] as ProductMode[]
             ).map((m) => {
               const active = params.mode === m;
@@ -1206,13 +1206,33 @@ export default function App() {
                   key={m}
                   type="button"
                   onClick={() => setParams((prev) => ({ ...prev, mode: m }))}
-                  className={`px-2.5 py-0.5 text-xs font-bold transition-colors whitespace-nowrap ${
+                  className={`px-2.5 py-1 text-[11px] font-bold transition-all whitespace-nowrap flex items-center gap-1.5 ${
                     active
-                      ? `${mMeta.bgClass} ${mMeta.accentText} border ${mMeta.borderClass}`
-                      : 'text-slate-400 hover:text-slate-200'
+                      ? m === ProductMode.LIVE
+                        ? 'bg-emerald-950/90 text-emerald-300 border border-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]'
+                        : m === ProductMode.SIMULATED
+                        ? 'bg-cyan-950/90 text-cyan-200 border border-cyan-400'
+                        : m === ProductMode.HISTORICAL
+                        ? 'bg-amber-950/90 text-amber-200 border border-amber-400'
+                        : 'bg-fuchsia-950/90 text-fuchsia-200 border border-fuchsia-400'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent'
                   }`}
                 >
-                  ● {m}
+                  <span className={active && m === ProductMode.LIVE ? 'animate-live-pulse' : ''}>
+                    {mMeta.indicatorSymbol}
+                  </span>
+                  <span>{m}</span>
+                  {active && (
+                    <span className="text-[9px] opacity-75 font-normal">
+                      {m === ProductMode.LIVE
+                        ? '(STREAM)'
+                        : m === ProductMode.SIMULATED
+                        ? '(TWIN)'
+                        : m === ProductMode.HISTORICAL
+                        ? '(ARCHIVE)'
+                        : '(BENCH)'}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1563,7 +1583,7 @@ export default function App() {
             ))}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5 py-0.5">
             {activePreset.hourlyRainProfile.map((step) => {
               const isCurrent = params.timelineHourOffset === step.hourOffset;
               const periodCategory =
@@ -1572,41 +1592,68 @@ export default function App() {
                   : step.hourOffset === 0
                   ? 'NOW'
                   : 'FORECAST';
+              const barHeightPx = Math.max(3, Math.min(20, Math.round((step.mmHr / 70) * 20)));
 
               return (
-                <button
-                  key={step.hourOffset}
-                  type="button"
-                  onClick={() => {
-                    setIsPlayingTimeline(false);
-                    updateParamsWithHysteresis((prev) =>
-                      resolveTimelineStepParameters(prev, step.hourOffset)
-                    );
-                  }}
-                  className={`px-2.5 py-1 text-[11px] border transition-colors whitespace-nowrap tabular-nums flex items-center gap-1.5 ${
-                    isCurrent
-                      ? 'bg-cyan-500/25 border-cyan-400 text-white font-semibold'
-                      : step.hourOffset === 0
-                      ? 'bg-slate-900 border-slate-700 text-cyan-300 hover:border-slate-500'
-                      : 'bg-[#0D1320] border-slate-800 text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <span
-                    className={`text-[9.5px] ${
-                      periodCategory === 'NOW'
-                        ? 'text-emerald-400 font-bold'
-                        : periodCategory === 'FORECAST'
-                        ? 'text-amber-300'
-                        : 'text-slate-500'
+                <React.Fragment key={step.hourOffset}>
+                  {step.hourOffset === 1 && (
+                    <div className="h-7 w-[1px] bg-slate-700/80 mx-0.5" title="Observed / Forecast Horizon Boundary" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPlayingTimeline(false);
+                      updateParamsWithHysteresis((prev) =>
+                        resolveTimelineStepParameters(prev, step.hourOffset)
+                      );
+                    }}
+                    className={`px-2.5 py-1 text-[11px] border transition-all whitespace-nowrap tabular-nums flex items-center gap-2 ${
+                      isCurrent
+                        ? 'bg-cyan-500/20 border-cyan-400 text-white font-semibold shadow-[0_0_8px_rgba(34,211,238,0.2)]'
+                        : step.hourOffset === 0
+                        ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300 hover:border-emerald-400'
+                        : 'bg-[#0A0F1A] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
                     }`}
                   >
-                    {periodCategory}
-                  </span>
-                  <span>
-                    {step.hourOffset >= 0 ? `T+${step.hourOffset}h` : `T${step.hourOffset}h`}
-                  </span>
-                  <span className="text-sky-300">({step.mmHr}mm/h)</span>
-                </button>
+                    {/* Mini Hyetograph Bar */}
+                    <div className="flex items-end h-5 w-1 bg-slate-800" title={`Rainfall: ${step.mmHr} mm/h`}>
+                      <div
+                        style={{ height: `${barHeightPx}px` }}
+                        className={`w-full transition-all ${
+                          isCurrent
+                            ? 'bg-cyan-300'
+                            : periodCategory === 'NOW'
+                            ? 'bg-emerald-400'
+                            : periodCategory === 'FORECAST'
+                            ? 'bg-amber-400'
+                            : 'bg-slate-500'
+                        }`}
+                      />
+                    </div>
+
+                    <div className="flex flex-col items-start leading-none gap-0.5">
+                      <div className="flex items-center gap-1">
+                        <span
+                          className={`text-[8.5px] uppercase font-bold tracking-wider ${
+                            periodCategory === 'NOW'
+                              ? 'text-emerald-400'
+                              : periodCategory === 'FORECAST'
+                              ? 'text-amber-400'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {periodCategory}
+                        </span>
+                        <span className="text-slate-200">
+                          {step.hourOffset >= 0 ? `T+${step.hourOffset}h` : `T${step.hourOffset}h`}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-sky-300 font-mono">
+                        {step.mmHr} mm/h
+                      </span>
+                    </div>
+                  </button>
+                </React.Fragment>
               );
             })}
           </div>
