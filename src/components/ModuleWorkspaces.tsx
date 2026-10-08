@@ -30,6 +30,7 @@ import {
   TravelProfile,
   UserRole,
   ValidationReport,
+  isAnalystOrModelOperator,
 } from '../types/idhara';
 import { AlertCommandWorkspace } from './AlertCommandWorkspace';
 import { MapInspectionTarget } from './IndoreFloodMap';
@@ -186,44 +187,62 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
         ? 'WORSENING'
         : 'STABLE';
 
+    const isAnalyst = isAnalystOrModelOperator(activeRole);
+
     return (
       <div className="bg-[#080C14] border-b border-slate-800/90 px-4 py-3 space-y-3">
         {/* Operational Chain Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/70">
-          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
-            {OPERATIONAL_CHAIN.map((item, idx) => (
-              <React.Fragment key={item.step}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (item.step === 'PREDICT') onNavigateTab('risk-map');
-                    else if (item.step === 'EXPLAIN') {
-                      onNavigateTab('risk-map');
-                      onSelectMapTarget({ type: 'CELL', id: 'CELL-R2C2' });
-                    }
-                    else if (item.step === 'WARN') onNavigateTab('alerts');
-                    else if (item.step === 'SIMULATE') onNavigateTab('disaster-twin');
-                    else if (item.step === 'VERIFY') onNavigateTab('data-health');
-                    else if (item.step === 'REROUTE') onNavigateTab('roads-routing');
-                    else if (item.step === 'EVACUATE') onNavigateTab('evacuation');
-                    else if (item.step === 'LEARN') onNavigateTab('event-replay');
-                    else onNavigateTab('risk-map');
-                  }}
-                  className="px-2 py-1 bg-[#0D1320] hover:bg-slate-800 border border-slate-800 text-[11px] font-mono text-slate-200 whitespace-nowrap transition-colors"
-                  title={item.shortDesc}
-                >
-                  <span className="text-cyan-400 font-semibold">{item.label}</span>
-                </button>
-                {idx < OPERATIONAL_CHAIN.length - 1 && (
-                  <span className="text-slate-600 font-mono text-xs" aria-hidden="true">
-                    →
-                  </span>
-                )}
-              </React.Fragment>
-            ))}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 no-scrollbar">
+            {OPERATIONAL_CHAIN.map((item, idx) => {
+              const isAnalystStep = isAnalyst && (item.step === 'PREDICT' || item.step === 'EXPLAIN' || item.step === 'VERIFY' || item.step === 'LEARN');
+              return (
+                <React.Fragment key={item.step}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (item.step === 'PREDICT') onNavigateTab('risk-map');
+                      else if (item.step === 'EXPLAIN') {
+                        onNavigateTab('risk-map');
+                        onSelectMapTarget({ type: 'CELL', id: 'CELL-R2C2' });
+                      }
+                      else if (item.step === 'WARN') onNavigateTab('alerts');
+                      else if (item.step === 'SIMULATE') onNavigateTab('disaster-twin');
+                      else if (item.step === 'VERIFY') onNavigateTab('data-health');
+                      else if (item.step === 'REROUTE') onNavigateTab('roads-routing');
+                      else if (item.step === 'EVACUATE') onNavigateTab('evacuation');
+                      else if (item.step === 'LEARN') onNavigateTab('event-replay');
+                      else onNavigateTab('risk-map');
+                    }}
+                    className={`px-2 py-1 border text-[11px] font-mono whitespace-nowrap transition-colors cursor-pointer ${
+                      isAnalystStep
+                        ? 'bg-cyan-950/80 hover:bg-cyan-900 border-cyan-400 text-cyan-200 font-bold shadow-[0_0_8px_rgba(6,182,212,0.25)]'
+                        : 'bg-[#0D1320] hover:bg-slate-800 border-slate-800 text-slate-200'
+                    }`}
+                    title={item.shortDesc}
+                  >
+                    <span className="text-cyan-400 font-semibold">{item.label}</span>
+                    {isAnalystStep && <span className="ml-1 text-[9px] text-amber-300">★</span>}
+                  </button>
+                  {idx < OPERATIONAL_CHAIN.length - 1 && (
+                    <span className="text-slate-600 font-mono text-xs" aria-hidden="true">
+                      →
+                    </span>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </div>
-          <div className="font-mono text-[10.5px] text-slate-400">
-            <span className="text-slate-500">Prototype — simulated operational data</span> · Indore Pilot (5×5 km)
+          <div className="font-mono text-[10.5px] text-slate-400 flex flex-wrap items-center gap-2">
+            <span>
+              Perspective: <strong className="text-cyan-300 font-semibold">{activeRole}</strong>
+            </span>
+            <span className="text-slate-600">·</span>
+            <span>
+              Mode: <strong className="text-amber-300 font-semibold">{params.mode === ProductMode.MOCK ? 'DEMO DATA (MOCK)' : params.mode === ProductMode.SIMULATED ? 'TWIN SIM' : params.mode}</strong>
+            </span>
+            <span className="text-slate-600 hidden sm:inline">·</span>
+            <span className="text-slate-500 hidden sm:inline">Indore Pilot 5×5 km</span>
           </div>
         </div>
 
@@ -238,76 +257,97 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('alerts')}
-                className="text-amber-300 hover:underline text-[10.5px]"
+                className="text-amber-300 hover:underline text-[10.5px] cursor-pointer"
+                title="Review alerts pending human confirmation"
               >
                 {alerts.filter((a) => a.lifecycleState === 'PENDING REVIEW').length} Alerts Pending Human Confirmation →
               </button>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2 text-xs tabular-nums">
-              <div className="p-2 bg-[#070B12] border border-slate-800">
+              <button
+                type="button"
+                onClick={() => onNavigateTab('risk-map')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors"
+                title="View overall pilot risk map"
+              >
                 <div className="text-[10px] text-slate-400">Risk:</div>
                 <div className="text-sm font-bold text-rose-400 mt-0.5">
                   {overallRiskLabel}
                 </div>
-              </div>
+              </button>
 
-              <div className="p-2 bg-[#070B12] border border-slate-800">
+              <button
+                type="button"
+                onClick={() => onNavigateTab('disaster-twin')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-amber-500/60 cursor-pointer text-left transition-colors"
+                title="Open Disaster Twin to simulate trend and forecast"
+              >
                 <div className="text-[10px] text-slate-400">Trend:</div>
                 <div className="text-sm font-bold text-amber-400 mt-0.5">
                   {trendLabel}
                 </div>
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
                 onClick={() => onNavigateTab('risk-map')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors"
+                title="Inspect High-risk zones on Risk Map"
               >
                 <div className="text-[10px] text-slate-400">High-risk zones:</div>
                 <div className="text-sm font-bold text-white mt-0.5">
                   {highRiskZonesCount}
                 </div>
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
                 onClick={() => onNavigateTab('roads-routing')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-amber-500/50 cursor-pointer"
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-amber-500/60 cursor-pointer text-left transition-colors"
+                title="Inspect at-risk corridors in Roads & Routing"
               >
                 <div className="text-[10px] text-slate-400">At-risk roads:</div>
                 <div className="text-sm font-bold text-amber-300 mt-0.5">
                   {atRiskRoadsCount}
                 </div>
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
                 onClick={() => onNavigateTab('roads-routing')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors"
+                title="Inspect closed bridges and barricaded roads"
               >
                 <div className="text-[10px] text-slate-400">Closed roads:</div>
                 <div className="text-sm font-bold text-rose-400 mt-0.5">
                   {closedRoads.length}
                 </div>
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
                 onClick={() => onNavigateTab('evacuation')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-emerald-500/50 cursor-pointer"
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-emerald-500/60 cursor-pointer text-left transition-colors"
+                title="Inspect reachable emergency shelters"
               >
                 <div className="text-[10px] text-slate-400">Shelters available:</div>
                 <div className="text-sm font-bold text-emerald-300 mt-0.5">
                   {availableSheltersCount}
                 </div>
-              </div>
+              </button>
 
-              <div
+              <button
+                type="button"
                 onClick={() => onNavigateTab('data-health')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-cyan-500/50 cursor-pointer"
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-cyan-500/60 cursor-pointer text-left transition-colors"
+                title="Inspect data telemetry and model confidence"
               >
                 <div className="text-[10px] text-slate-400">Data confidence:</div>
                 <div className="text-sm font-bold text-cyan-300 mt-0.5">
                   {Math.round(dataHealthReport.confidence * 100)}%
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -318,17 +358,26 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                 ● ACTIVITY FEED (CHRONOLOGICAL)
               </span>
               <span className="text-slate-400 text-[10px]">
-                Prediction · Sensor · Road · Route · Alert
+                Click entry to focus target
               </span>
             </div>
-            <div className="max-h-20 overflow-y-auto space-y-1 text-[11px] tabular-nums pr-1">
+            <div className="max-h-24 overflow-y-auto space-y-1 text-[11px] tabular-nums pr-1">
               {activityFeed.slice(0, 5).map((entry) => (
-                <div
+                <button
                   key={entry.id}
-                  onClick={() =>
-                    entry.relatedTarget && onSelectMapTarget(entry.relatedTarget)
-                  }
-                  className="px-2 py-0.5 bg-[#070B12] border-l-2 border-cyan-400 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-900"
+                  type="button"
+                  onClick={() => {
+                    if (entry.relatedTarget) {
+                      onSelectMapTarget(entry.relatedTarget);
+                      if (entry.relatedTarget.type === 'CELL') onNavigateTab('risk-map');
+                      else if (entry.relatedTarget.type === 'ROAD') onNavigateTab('roads-routing');
+                    } else if (entry.category === 'ALERT') {
+                      onNavigateTab('alerts');
+                    } else if (entry.category === 'ROUTING') {
+                      onNavigateTab('roads-routing');
+                    }
+                  }}
+                  className="w-full text-left px-2 py-1 bg-[#070B12] border-l-2 border-cyan-400 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-900 transition-colors"
                 >
                   <div className="truncate">
                     <span className="text-slate-400 mr-1.5">{entry.timestamp}</span>
@@ -339,7 +388,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                     )}
                     <span className="text-slate-200">{entry.message}</span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>

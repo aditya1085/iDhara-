@@ -18,6 +18,14 @@ export enum UserRole {
   TRAFFIC_AUTHORITY = 'Traffic authority',
   CITIZEN = 'Citizen',
   ANALYST_MODEL_OPERATOR = 'Analyst/model operator',
+  ANALYST = 'Analyst',
+  MODEL_OPERATOR = 'Model Operator',
+}
+
+export function isAnalystOrModelOperator(role: UserRole | string): boolean {
+  if (!role) return false;
+  const str = String(role).toLowerCase();
+  return str.includes('analyst') || str.includes('model operator');
 }
 
 export type NavigationTab =
@@ -130,7 +138,9 @@ export type ActivityEventTypeLabel =
   | 'Road changed'
   | 'Route recalculated'
   | 'Alert drafted'
-  | 'Operator approved alert';
+  | 'Operator approved alert'
+  | 'Mode changed'
+  | 'Operator lens changed';
 
 export interface ActivityFeedEntry {
   id: string;

@@ -15,6 +15,7 @@ import {
   Shelter,
   UserRole,
   WarningLevel,
+  isAnalystOrModelOperator,
 } from '../types/idhara';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import { ProvenanceStrip, WarningLevelIndicator } from './SeverityVisuals';
@@ -302,8 +303,8 @@ export const AlertCommandWorkspace: React.FC<AlertCommandWorkspaceProps> = ({
             <span className="text-xs font-bold text-cyan-300">
               CURRENT SITUATION (COMMAND CENTER)
             </span>
-            <span className="text-[11px] text-slate-400">
-              Operator Lens: {activeRole}
+            <span className={`text-[11px] font-mono ${isAnalystOrModelOperator(activeRole) ? 'text-cyan-300 font-bold' : 'text-slate-400'}`}>
+              Operator Lens: {activeRole} {isAnalystOrModelOperator(activeRole) ? '(Predictive & Forensic Model Validation)' : ''}
             </span>
           </div>
 

@@ -47,6 +47,7 @@ import {
   TravelProfile,
   UserRole,
   WarningLevel,
+  isAnalystOrModelOperator,
 } from './types/idhara';
 
 const NAV_ITEMS: Array<{
@@ -1188,6 +1189,102 @@ export default function App() {
     setActiveTab(tab);
   };
 
+  const handleSwitchMode = (m: ProductMode) => {
+    updateParamsWithHysteresis((prev) => {
+      if (m === ProductMode.MOCK) {
+        return {
+          ...prev,
+          mode: ProductMode.MOCK,
+          activeEventPresetId: 'EVT-MOCK-STRESS-TEST',
+          rainfallIntensityMmHr: 90,
+          drainageBlockagePct: 65,
+          upstreamKahnInflowMultiplier: 1.65,
+          timelineHourOffset: 0,
+          stage: DisasterStage.REAL_TIME_ONGOING,
+        };
+      }
+      if (m === ProductMode.SIMULATED) {
+        return {
+          ...prev,
+          mode: ProductMode.SIMULATED,
+          activeEventPresetId: 'EVT-SIM-MONSOON-SURGE',
+          rainfallIntensityMmHr: 62,
+          drainageBlockagePct: 40,
+          upstreamKahnInflowMultiplier: 1.25,
+          stage: DisasterStage.REAL_TIME_ONGOING,
+        };
+      }
+      if (m === ProductMode.HISTORICAL) {
+        return {
+          ...prev,
+          mode: ProductMode.HISTORICAL,
+          activeEventPresetId: 'EVT-HIST-SEP-2023',
+          rainfallIntensityMmHr: 74,
+          drainageBlockagePct: 48,
+          upstreamKahnInflowMultiplier: 1.45,
+          timelineHourOffset: 0,
+          stage: DisasterStage.REAL_TIME_ONGOING,
+        };
+      }
+      return {
+        ...prev,
+        mode: ProductMode.LIVE,
+        rainfallIntensityMmHr: 42,
+        drainageBlockagePct: 40,
+        upstreamKahnInflowMultiplier: 1.25,
+        timelineHourOffset: 0,
+        stage: DisasterStage.REAL_TIME_ONGOING,
+      };
+    });
+
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-MODE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'PREDICTION' as const,
+          eventTypeLabel: 'Mode changed' as const,
+          message: `Operational mode switched to ${
+            m === ProductMode.MOCK ? 'DEMO DATA (MOCK BENCHMARK)' : m
+          }`,
+          detail:
+            m === ProductMode.MOCK
+              ? 'Loaded 90 mm/hr cloudburst benchmark with 65% culvert choke and saturated evacuation corridors.'
+              : m === ProductMode.SIMULATED
+              ? 'Hydraulic Digital Twin active with 62 mm/hr convective surge.'
+              : m === ProductMode.HISTORICAL
+              ? 'Archived Sept 2023 171mm rainfall event loaded.'
+              : 'Live telemetry ingestion loop active.',
+          severity: m === ProductMode.MOCK ? ('WARNING' as const) : ('INFO' as const),
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
+  const handleSwitchRole = (role: UserRole) => {
+    setActiveRole(role);
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-ROLE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'PREDICTION' as const,
+          eventTypeLabel: 'Operator lens changed' as const,
+          message: `Active perspective switched to ${role}`,
+          detail:
+            isAnalystOrModelOperator(role)
+              ? 'Forensic physical feature vectors, uncertainty bounds, and model recalibration checkpoints prioritized.'
+              : `Operating under ${role} authority and dispatch protocols.`,
+          severity: 'INFO' as const,
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
   const modeMeta = MODE_META[params.mode];
   const riskMeta = SEVERITY_META[overallPilotRisk];
   const warnMeta = WARNING_LEVEL_META[overallWarningLevel];
@@ -1248,24 +1345,33 @@ export default function App() {
                 <button
                   key={m}
                   type="button"
-                  onClick={() => {
-                    updateParamsWithHysteresis((prev) => ({
-                      ...prev,
-                      mode: m,
-                      timelineHourOffset: m === ProductMode.LIVE ? 0 : prev.timelineHourOffset,
-                    }));
-                  }}
-                  className={`px-2 py-0.5 text-[10px] font-bold transition-all ${
+                  onClick={() => handleSwitchMode(m)}
+                  className={`px-2 py-0.5 text-[10px] font-bold transition-all cursor-pointer ${
                     active
                       ? m === ProductMode.LIVE
                         ? 'bg-emerald-500 text-slate-950 font-bold'
                         : m === ProductMode.SIMULATED
                         ? 'bg-cyan-500 text-slate-950 font-bold'
+                        : m === ProductMode.MOCK
+                        ? 'bg-fuchsia-400 text-slate-950 font-bold'
                         : 'bg-amber-500 text-slate-950 font-bold'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
+                  title={
+                    m === ProductMode.MOCK
+                      ? 'Switch to synthetic stress-test benchmark demo data (90 mm/hr, 65% culvert choke)'
+                      : m === ProductMode.SIMULATED
+                      ? 'Switch to Digital Twin Simulation (62 mm/hr)'
+                      : m === ProductMode.HISTORICAL
+                      ? 'Switch to Historical Replay (Sept 2023)'
+                      : 'Switch to Live Telemetry Monitoring (42 mm/hr)'
+                  }
                 >
-                  {m === ProductMode.SIMULATED ? 'TWIN SIM' : m}
+                  {m === ProductMode.SIMULATED
+                    ? 'TWIN SIM'
+                    : m === ProductMode.MOCK
+                    ? 'DEMO DATA'
+                    : m}
                 </button>
               );
             })}
@@ -1301,7 +1407,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('data-health')}
-            className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 bg-[#070C16] border border-slate-800 text-[10.5px] hover:border-slate-700 transition-colors"
+            className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 bg-[#070C16] border border-slate-800 text-[10.5px] hover:border-slate-700 transition-colors cursor-pointer"
             title="Inspect Data Health & System Integrity"
           >
             <span className={dataHealthReport.overallHealthPct >= 85 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
@@ -1315,7 +1421,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowDemoGuide(true)}
-            className="px-2.5 py-1 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/70 text-cyan-200 text-[11px] font-bold whitespace-nowrap transition-colors"
+            className="px-2.5 py-1 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/70 text-cyan-200 text-[11px] font-bold whitespace-nowrap transition-colors cursor-pointer"
             title="Open 26-step verification walkthrough for iDhara demo"
           >
             ⚡ Demo Path
@@ -1325,18 +1431,20 @@ export default function App() {
             id="operator-role-select"
             aria-label="Operator Role Perspective"
             value={activeRole}
-            onChange={(e) => setActiveRole(e.target.value as UserRole)}
-            className="bg-[#0D1422] border border-slate-700 text-slate-200 px-2 py-1 text-[11px] font-mono hidden xl:inline-block"
+            onChange={(e) => handleSwitchRole(e.target.value as UserRole)}
+            className="bg-[#0D1422] border border-slate-700 text-slate-200 px-2 py-1 text-[11px] font-mono inline-block max-w-[140px] sm:max-w-none cursor-pointer"
           >
-            {Object.values(UserRole).map((role) => (
-              <option key={role} value={role}>{role}</option>
-            ))}
+            <option value={UserRole.CONTROL_ROOM_OPERATOR}>Control-room operator</option>
+            <option value={UserRole.ANALYST_MODEL_OPERATOR}>Analyst / Model Operator</option>
+            <option value={UserRole.EMERGENCY_RESPONDER}>Emergency responder</option>
+            <option value={UserRole.TRAFFIC_AUTHORITY}>Traffic authority</option>
+            <option value={UserRole.CITIZEN}>Citizen</option>
           </select>
 
           <button
             type="button"
             onClick={() => setIsInspectorOpen((prev) => !prev)}
-            className={`px-2.5 py-1 border text-[11px] font-mono transition-colors whitespace-nowrap ${
+            className={`px-2.5 py-1 border text-[11px] font-mono transition-colors whitespace-nowrap cursor-pointer ${
               isInspectorOpen
                 ? 'bg-slate-800 border-slate-600 text-slate-200'
                 : 'bg-[#0E1524] border-slate-800 text-slate-400 hover:text-white'
@@ -1354,7 +1462,17 @@ export default function App() {
         <div className="flex items-center gap-2.5 truncate">
           <span className={`font-bold ${modeMeta.accentText} truncate flex items-center gap-1`}>
             <span>{modeMeta.indicatorSymbol}</span>
-            <span>{params.mode === ProductMode.SIMULATED ? 'SIMULATED (TWIN)' : params.mode}</span>
+            <span>
+              {params.mode === ProductMode.SIMULATED
+                ? 'SIMULATED (TWIN)'
+                : params.mode === ProductMode.MOCK
+                ? 'DEMO DATA (MOCK)'
+                : params.mode}
+            </span>
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className="text-cyan-300 font-semibold truncate">
+            Perspective: {activeRole}
           </span>
           <span className="text-slate-600">·</span>
           <span className="text-cyan-300 font-semibold truncate">
@@ -1364,7 +1482,11 @@ export default function App() {
           {/* 5. RECOMMENDED ACTION (IMMEDIATELY VISIBLE ON SCREEN!) */}
           <div className="hidden md:flex items-center gap-1.5 truncate">
             <span className="text-amber-400 font-bold">DIRECTIVE:</span>
-            <span className="text-amber-200 truncate">{primaryRecommendedAction}</span>
+            <span className="text-amber-200 truncate">
+              {isAnalystOrModelOperator(activeRole)
+                ? 'ANALYST / MODEL OPERATOR: Evaluate 64-cell hydrological feature vectors, sensor drift, and model calibration residuals.'
+                : primaryRecommendedAction}
+            </span>
           </div>
         </div>
         <div className="text-slate-400 shrink-0 text-[10.5px] hidden sm:block tabular-nums">
@@ -1533,23 +1655,61 @@ export default function App() {
             </div>
           ) : (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-              {/* Contextual Top Action Ribbon for Overview */}
+              {/* Contextual Command Center Overview Strip (Situation + Operational Chain + Activity Feed) */}
               {activeTab === 'overview' && (
-                <div className="h-8 px-3 bg-[#080C14] border-b border-slate-800 flex items-center justify-between text-[11px] font-mono shrink-0 overflow-x-auto no-scrollbar">
-                  <div className="flex items-center gap-2 text-slate-300">
-                    <span className="text-cyan-400 font-bold">● PILOT STATUS:</span>
-                    <span>High Risk Zones: <strong className="text-white">{cells.filter((c) => c.severity === FloodSeverity.CRITICAL || c.severity === FloodSeverity.HIGH).length}</strong></span>
-                    <span className="text-slate-600">·</span>
-                    <span>At-Risk Roads: <strong className="text-amber-300">{roads.filter((r) => r.currentState !== RoadStatus.OPEN).length}</strong></span>
-                    <span className="text-slate-600">·</span>
-                    <span>Shelters: <strong className="text-emerald-300">{shelters.filter((s) => s.reachable && s.remainingCapacity > 0).length} Reachable</strong></span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px]">
-                    <span className="text-slate-500">QUICK:</span>
-                    <button type="button" onClick={() => handleNavigateTab('risk-map')} className="text-cyan-400 hover:underline">Risk Map →</button>
-                    <button type="button" onClick={() => handleNavigateTab('roads-routing')} className="text-cyan-400 hover:underline">Routing →</button>
-                    <button type="button" onClick={() => handleNavigateTab('evacuation')} className="text-cyan-400 hover:underline">Evacuation →</button>
-                  </div>
+                <div className="shrink-0 max-h-[44vh] overflow-y-auto border-b border-slate-800 bg-[#080C14]">
+                  <ModuleWorkspace
+                    activeTab="overview"
+                    params={params}
+                    onUpdateParams={updateParamsWithHysteresis}
+                    cells={cells}
+                    roads={roads}
+                    sensors={sensors}
+                    shelters={shelters}
+                    evacuationPlans={evacuationPlans}
+                    evacuationModeActive={evacuationModeActive}
+                    evacuationTriggerReason={evacuationTriggerReason}
+                    evacuationThreshold={evacuationConfig.thresholdProbability}
+                    manualEvacuationActive={evacuationConfig.manualModeActive}
+                    shelterCapacityScalePct={evacuationConfig.shelterCapacityScalePct}
+                    lastEvacAutoRefreshNote={lastEvacAutoRefreshNote}
+                    onToggleManualEvacuation={handleToggleManualEvacuation}
+                    onChangeEvacuationThreshold={handleChangeEvacuationThreshold}
+                    onChangeShelterCapacityScale={handleChangeShelterCapacityScale}
+                    onRecalculateEvacuationPlan={handleRecalculateEvacuationPlan}
+                    onSimulateEvacFailureState={handleSimulateEvacFailureState}
+                    routes={routes}
+                    activeRouteId={activeRoute?.id ?? ''}
+                    onSelectRouteId={setSelectedRouteId}
+                    customOriginId={customOriginId}
+                    customDestId={customDestId}
+                    travelProfile={travelProfile}
+                    onChangeCustomRoute={handleChangeCustomRoute}
+                    onChangeTravelProfile={handleChangeTravelProfile}
+                    routeUpdateNotification={routeUpdateNotification}
+                    onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
+                    onTriggerDemoIncident={handleTriggerDemoIncident}
+                    onTriggerNoFeasibleRouteDemo={handleTriggerNoFeasibleRouteDemo}
+                    alerts={alerts}
+                    onAcknowledgeAlert={handleAcknowledgeAlert}
+                    onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
+                    onComposeAlert={handleComposeAlert}
+                    validationReport={validationReport}
+                    isPlayingTimeline={isPlayingTimeline}
+                    onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
+                    replaySpeed={replaySpeed}
+                    onChangeReplaySpeed={setReplaySpeed}
+                    onStepTimeline={handleStepTimeline}
+                    activeModelVersionId={activeModelVersionId}
+                    onChangeModelVersionId={handleChangeModelVersionId}
+                    dataHealthReport={dataHealthReport}
+                    activeRole={activeRole}
+                    onSelectMapTarget={setSelectedTarget}
+                    onNavigateTab={handleNavigateTab}
+                    activityFeed={activityFeed}
+                    onInjectObservation={handleInjectObservation}
+                    onResetObservations={handleResetObservations}
+                  />
                 </div>
               )}
 

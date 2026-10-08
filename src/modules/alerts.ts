@@ -23,7 +23,12 @@ export interface AlertLifecycleOverride {
 function mapAudiencesToRoles(audiences: AlertAudience[]): UserRole[] {
   const roles: UserRole[] = [];
   if (audiences.includes('Control room')) {
-    roles.push(UserRole.CONTROL_ROOM_OPERATOR, UserRole.ANALYST_MODEL_OPERATOR);
+    roles.push(
+      UserRole.CONTROL_ROOM_OPERATOR,
+      UserRole.ANALYST_MODEL_OPERATOR,
+      UserRole.ANALYST,
+      UserRole.MODEL_OPERATOR
+    );
   }
   if (audiences.includes('Emergency responders')) {
     roles.push(UserRole.EMERGENCY_RESPONDER);

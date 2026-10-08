@@ -19,6 +19,7 @@ import {
   Shelter,
   UserRole,
   WarningLevel,
+  isAnalystOrModelOperator,
 } from '../types/idhara';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import { LiveFeedSimulator } from './LiveFeedSimulator';
@@ -245,7 +246,9 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
           <span className="text-cyan-400 font-semibold truncate min-w-0">
             WHAT SHOULD THE CITY DO NEXT?
           </span>
-          <span className="text-slate-400 shrink-0">{activeRole}</span>
+          <span className={`shrink-0 ${isAnalystOrModelOperator(activeRole) ? 'text-cyan-300 font-bold' : 'text-slate-400'}`}>
+            {activeRole}
+          </span>
         </div>
 
         <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 w-full min-w-0">
@@ -325,6 +328,12 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 Hysteresis Active
               </span>
             </div>
+
+            {isAnalystOrModelOperator(activeRole) && (
+              <div className="p-2 bg-cyan-950/60 border border-cyan-500/50 text-[11px] font-mono text-cyan-200">
+                <span className="font-bold text-cyan-300">● ANALYST / MODEL OPERATOR LENS:</span> Physical run-off accumulation, Manning roughness coefficient, and 64-cell predictive feature vectors prioritized.
+              </div>
+            )}
 
             {actionCards.map((card) => {
               const wMeta = WARNING_LEVEL_META[card.warningLevel];
@@ -831,7 +840,10 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               </details>
 
               {/* COLLAPSIBLE SECONDARY SECTION 2: FORENSIC FEATURE VECTOR */}
-              <details className="group border border-slate-800 bg-[#070B14]">
+              <details
+                open={isAnalystOrModelOperator(activeRole)}
+                className="group border border-slate-800 bg-[#070B14]"
+              >
                 <summary className="p-2 font-mono text-xs text-slate-300 font-semibold cursor-pointer hover:text-white flex items-center justify-between select-none">
                   <span className="flex items-center gap-1.5 min-w-0">
                     <span className="text-cyan-400 text-[10px] shrink-0">▶</span>
