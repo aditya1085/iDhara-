@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ContextInspectorPanel } from './components/ContextInspectorPanel';
+import { DemoGuideModal } from './components/DemoGuideModal';
 import { DisasterTwinWorkspace } from './components/DisasterTwinWorkspace';
 import { IndoreFloodMap, MapInspectionTarget } from './components/IndoreFloodMap';
 import { ModuleWorkspace } from './components/ModuleWorkspaces';
@@ -50,16 +51,21 @@ import {
   WarningLevel,
 } from './types/idhara';
 
-const NAV_ITEMS: Array<{ id: NavigationTab; label: string; shortBadge?: string }> = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'risk-map', label: 'Risk Map' },
-  { id: 'disaster-twin', label: 'Disaster Twin', shortBadge: '4-Stage' },
-  { id: 'roads-routing', label: 'Roads & Routing' },
-  { id: 'evacuation', label: 'Evacuation' },
-  { id: 'alerts', label: 'Alerts' },
-  { id: 'event-replay', label: 'Event Replay' },
-  { id: 'validation', label: 'Validation' },
-  { id: 'data-health', label: 'Data Health' },
+const NAV_ITEMS: Array<{
+  id: NavigationTab;
+  label: string;
+  stageTag?: string;
+  shortBadge?: string;
+}> = [
+  { id: 'overview', label: 'Overview', stageTag: '1. PREDICT' },
+  { id: 'risk-map', label: 'Risk Map', stageTag: '2. EXPLAIN' },
+  { id: 'alerts', label: 'Alerts', stageTag: '3. WARN' },
+  { id: 'disaster-twin', label: 'Disaster Twin', stageTag: '4. SIMULATE', shortBadge: '4-Stage' },
+  { id: 'validation', label: 'Validation', stageTag: '5. VERIFY' },
+  { id: 'roads-routing', label: 'Roads & Routing', stageTag: '6. REROUTE' },
+  { id: 'evacuation', label: 'Evacuation', stageTag: '7. EVACUATE' },
+  { id: 'event-replay', label: 'Event Replay', stageTag: '8. LEARN' },
+  { id: 'data-health', label: 'Data Health', stageTag: 'TELEMETRY' },
 ];
 
 export default function App() {
@@ -203,6 +209,7 @@ export default function App() {
   const [activeModelVersionId, setActiveModelVersionId] = useState<string>(
     'v2.4.2-indore-pilot'
   );
+  const [showDemoGuide, setShowDemoGuide] = useState<boolean>(false);
 
   // Modular Service Pipeline Execution (every injected observation enters this same pipeline)
   const sensors = useMemo(
@@ -417,6 +424,32 @@ export default function App() {
           ...prev,
         ].slice(0, 25)
       );
+    } else if (type === 'ROAD_LIKELY_FLOODED') {
+      setStableTicksElapsed(3);
+      const roadObj = roads.find((r) => r.id === targetId);
+      setInjectedObservations((prev) => ({
+        ...prev,
+        officialRoadOverrides: {
+          ...prev.officialRoadOverrides,
+          [targetId]: 'LIKELY_FLOODED',
+        },
+      }));
+      setSelectedTarget({ type: 'ROAD', id: targetId });
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'ROAD_STATE' as const,
+            eventTypeLabel: 'Road changed' as const,
+            message: `Observation Injected: ${targetId} (${roadObj?.name ?? ''}) transitioned to LIKELY FLOODED`,
+            detail: `Water depth ~32cm exceeds safe wading clearance · Invalidating active ambulance/citizen corridor.`,
+            severity: 'WARNING' as const,
+            relatedTarget: { type: 'ROAD' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
     } else if (type === 'ROAD_REOPENED') {
       const roadObj = roads.find((r) => r.id === targetId);
       setInjectedObservations((prev) => {
@@ -583,11 +616,17 @@ export default function App() {
       prevSnap.profile === activeRoute.travelProfile &&
       prevSnap.roadIds.length > 0
     ) {
-      const changedRoadId = prevSnap.roadIds.find((rId) => {
-        const prevState = prevSnap.roadStates.get(rId);
-        const nowState = currentStates.get(rId);
-        return prevState && nowState && prevState !== nowState;
-      });
+      const changedRoadId =
+        prevSnap.roadIds.find((rId) => {
+          const prevState = prevSnap.roadStates.get(rId);
+          const nowState = currentStates.get(rId);
+          return prevState && nowState && prevState !== nowState;
+        }) ??
+        (prevSnap.roadIds.join(',') !== currentRoadIds.join(',')
+          ? roads.find(
+              (r) => prevSnap.roadStates.get(r.id) !== currentStates.get(r.id)
+            )?.id
+          : undefined);
 
       if (changedRoadId) {
         const changedRoad = roadMap.get(changedRoadId);
@@ -1311,8 +1350,21 @@ export default function App() {
           </button>
         </div>
 
-        {/* Right: Operator Role Lens */}
+        {/* Right: Operator Role Lens & Demo Path Guide */}
         <div className="flex items-center gap-2 font-mono text-xs">
+          <button
+            type="button"
+            onClick={() => setShowDemoGuide((prev) => !prev)}
+            className={`px-2.5 py-1 text-[11px] font-mono font-bold border transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+              showDemoGuide
+                ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200'
+                : 'bg-[#0D1320] border-slate-700 text-slate-300 hover:text-white hover:border-slate-500'
+            }`}
+            title="Open 26-step verification walkthrough for iDhara demo"
+          >
+            <span>⚡ Demo Path (26 Steps)</span>
+          </button>
+
           <select
             id="operator-role-select"
             aria-label="Operator Role Perspective"
@@ -1341,7 +1393,7 @@ export default function App() {
           <span className="text-slate-200">{systemEnvelope.disclaimer}</span>
         </div>
         <div className="text-slate-400 tabular-nums">
-          Scope: {PILOT_SCOPE_ID} · Stage: {params.stage.replace(/_/g, ' ')}
+          Scope: {PILOT_SCOPE_ID} · Stage: {params.stage.replace(/_/g, ' ')} · Prototype — simulated operational data
         </div>
       </div>
 
@@ -1353,8 +1405,9 @@ export default function App() {
           className="w-48 xl:w-52 shrink-0 bg-[#090D16] border-r border-slate-800/90 flex flex-col justify-between overflow-y-auto"
         >
           <div className="p-2.5 space-y-1">
-            <div className="px-2.5 py-1.5 font-mono text-[10.5px] text-slate-400">
-              CONTROL ROOM NAV
+            <div className="px-2.5 py-1 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
+              <span>OPERATIONAL FLOW</span>
+              <span className="text-[8.5px] text-slate-500">8 PHASES</span>
             </div>
             {NAV_ITEMS.map((item) => {
               const isActive = activeTab === item.id;
@@ -1367,19 +1420,26 @@ export default function App() {
                   key={item.id}
                   type="button"
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center justify-between px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap ${
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
                     isActive
-                      ? 'bg-cyan-950/50 text-cyan-300 border-l-2 border-cyan-400'
+                      ? 'bg-cyan-950/60 text-cyan-200 border-l-2 border-cyan-400 font-semibold'
                       : 'text-slate-300 hover:bg-slate-900 hover:text-white'
                   }`}
                 >
-                  <span>{item.label}</span>
+                  <div className="flex flex-col items-start text-left leading-tight">
+                    <span>{item.label}</span>
+                    {item.stageTag && (
+                      <span className="text-[9px] font-mono text-cyan-400/70 tracking-wider">
+                        {item.stageTag}
+                      </span>
+                    )}
+                  </div>
                   {unackCount > 0 ? (
-                    <span className="font-mono text-[10px] text-amber-300">
+                    <span className="font-mono text-[10px] text-amber-300 font-bold">
                       {unackCount} active
                     </span>
                   ) : item.shortBadge ? (
-                    <span className="font-mono text-[10px] text-slate-400">
+                    <span className="font-mono text-[9px] text-slate-400 bg-slate-900 px-1 py-0.5 border border-slate-800">
                       {item.shortBadge}
                     </span>
                   ) : null}
@@ -1439,6 +1499,10 @@ export default function App() {
               baselineParams={params}
               selectedTarget={selectedTarget}
               onSelectTarget={setSelectedTarget}
+              onReturnToLive={() => {
+                setParams((prev) => ({ ...prev, mode: ProductMode.LIVE }));
+                setActiveTab('overview');
+              }}
             />
           ) : (
             <>
@@ -1714,6 +1778,21 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* 6. GUIDED 26-STEP DEMO PATH MODAL */}
+      <DemoGuideModal
+        isOpen={showDemoGuide}
+        onClose={() => setShowDemoGuide(false)}
+        activeTab={activeTab}
+        onNavigateTab={setActiveTab}
+        onSelectTarget={setSelectedTarget}
+        onUpdateParams={updateParamsWithHysteresis}
+        onInjectObservation={handleInjectObservation}
+        onResetObservations={handleResetObservations}
+        onTriggerDemoIncident={handleTriggerDemoIncident}
+        activeRoute={activeRoute}
+        roads={roads}
+      />
     </div>
   );
 }

@@ -87,11 +87,15 @@ export function evaluateRoadNetworkState(
       floodProbability = Number(Math.min(0.22, floodProbability * 0.4).toFixed(2));
     } else if (officialOverride === 'CLOSED') {
       floodProbability = Math.max(0.88, floodProbability);
+    } else if (officialOverride === 'LIKELY_FLOODED') {
+      floodProbability = Math.max(0.68, floodProbability);
     }
 
     const estimatedWaterDepthCm =
       officialOverride === 'OPEN'
         ? Math.min(8, Math.round(maxAdjDepth * 0.25))
+        : officialOverride === 'LIKELY_FLOODED'
+        ? Math.max(32, Math.round(maxAdjDepth * structureAmplifier + 18))
         : Math.round(
             maxAdjDepth * structureAmplifier +
               sensorBoostProb * 85 +
@@ -110,6 +114,7 @@ export function evaluateRoadNetworkState(
     }
     if (crowdReport && crowdReport.count > 0) agreeingObservationsCount++;
     if (officialOverride === 'CLOSED') agreeingObservationsCount += 2;
+    if (officialOverride === 'LIKELY_FLOODED') agreeingObservationsCount += 2;
 
     // Raw State Machine Evaluation: OPEN | AT_RISK | LIKELY_FLOODED | CLOSED
     let rawState: RoadStatus = RoadStatus.OPEN;
@@ -119,6 +124,10 @@ export function evaluateRoadNetworkState(
       rawState = RoadStatus.CLOSED;
       transitionReason =
         'Official Traffic Police / EOC Barricade Closure active.';
+    } else if (officialOverride === 'LIKELY_FLOODED') {
+      rawState = RoadStatus.LIKELY_FLOODED;
+      transitionReason =
+        'Field patrol observation verified corridor as LIKELY FLOODED (~32cm depth).';
     } else if (officialOverride === 'OPEN') {
       rawState = RoadStatus.OPEN;
       transitionReason =

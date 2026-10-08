@@ -158,6 +158,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
   const likelyFloodedRoads = roads.filter(
     (r) => r.currentState === RoadStatus.LIKELY_FLOODED
   );
+  const activeRouteObj =
+    routes.find((r) => r.id === activeRouteId) ?? routes[0] ?? null;
 
   // 1. OVERVIEW / COMMAND CENTER SITUATION & ACTIVITY FEED STRIP
   if (activeTab === 'overview') {
@@ -194,12 +196,17 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    if (item.step === 'SIMULATE') onNavigateTab('disaster-twin');
+                    if (item.step === 'PREDICT') onNavigateTab('risk-map');
+                    else if (item.step === 'EXPLAIN') {
+                      onNavigateTab('risk-map');
+                      onSelectMapTarget({ type: 'CELL', id: 'CELL-R2C2' });
+                    }
+                    else if (item.step === 'WARN') onNavigateTab('alerts');
+                    else if (item.step === 'SIMULATE') onNavigateTab('disaster-twin');
+                    else if (item.step === 'VERIFY') onNavigateTab('data-health');
                     else if (item.step === 'REROUTE') onNavigateTab('roads-routing');
                     else if (item.step === 'EVACUATE') onNavigateTab('evacuation');
-                    else if (item.step === 'WARN') onNavigateTab('alerts');
-                    else if (item.step === 'LEARN') onNavigateTab('validation');
-                    else if (item.step === 'VERIFY') onNavigateTab('data-health');
+                    else if (item.step === 'LEARN') onNavigateTab('event-replay');
                     else onNavigateTab('risk-map');
                   }}
                   className="px-2 py-1 bg-[#0D1320] hover:bg-slate-800 border border-slate-800 text-[11px] font-mono text-slate-200 whitespace-nowrap transition-colors"
@@ -215,8 +222,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               </React.Fragment>
             ))}
           </div>
-          <div className="font-mono text-[11px] text-slate-400">
-            Predict the Flood. Protect the City.
+          <div className="font-mono text-[10.5px] text-slate-400">
+            <span className="text-slate-500">Prototype — simulated operational data</span> · Indore Pilot (5×5 km)
           </div>
         </div>
 
@@ -348,8 +355,6 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
 
   // 4. ROADS & ROUTING WORKSPACE (Dynamic Flood-Aware Route Planner + Live Rerouting + Demo Incident)
   if (activeTab === 'roads-routing') {
-    const activeRouteObj =
-      routes.find((r) => r.id === activeRouteId) ?? routes[0] ?? null;
     const activePolicy = TRAVEL_PROFILE_POLICIES[travelProfile];
 
     return (
@@ -869,6 +874,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           roads={roads}
           sensors={sensors}
           activityFeed={activityFeed}
+          activeRouteRoadIds={activeRouteObj?.recommendedRoadIds}
           onInjectObservation={onInjectObservation}
           onResetObservations={onResetObservations}
           onSelectMapTarget={onSelectMapTarget}
@@ -1738,6 +1744,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           roads={roads}
           sensors={sensors}
           activityFeed={activityFeed}
+          activeRouteRoadIds={activeRouteObj?.recommendedRoadIds}
           onInjectObservation={onInjectObservation}
           onResetObservations={onResetObservations}
           onSelectMapTarget={onSelectMapTarget}

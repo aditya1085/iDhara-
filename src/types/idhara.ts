@@ -111,6 +111,7 @@ export type ObservationInjectionType =
   | 'RAINFALL_INCREASE'
   | 'WATER_LEVEL_INCREASE'
   | 'ROAD_CLOSURE'
+  | 'ROAD_LIKELY_FLOODED'
   | 'ROAD_REOPENED'
   | 'CROWD_REPORT'
   | 'SENSOR_FAILURE';
@@ -119,7 +120,7 @@ export interface InjectedObservationState {
   extraRainfallMmHr: number;
   sensorWaterLevelBoostM: Record<string, number>;
   sensorFailureState: Record<string, 'STALE' | 'SUSPECT' | 'MISSING'>;
-  officialRoadOverrides: Record<string, 'CLOSED' | 'OPEN'>;
+  officialRoadOverrides: Record<string, 'CLOSED' | 'LIKELY_FLOODED' | 'OPEN'>;
   crowdReportsByRoad: Record<string, { count: number; lastReportText: string; timestamp: string }>;
 }
 
@@ -146,14 +147,15 @@ export interface ActivityFeedEntry {
 }
 
 export type OperationalStep =
-  | 'RAIN'
   | 'PREDICT'
+  | 'EXPLAIN'
   | 'WARN'
   | 'SIMULATE'
   | 'VERIFY'
   | 'REROUTE'
   | 'EVACUATE'
-  | 'LEARN';
+  | 'LEARN'
+  | 'RAIN';
 
 /**
  * Mandatory metadata contract carried by every prediction, map, route, alert,

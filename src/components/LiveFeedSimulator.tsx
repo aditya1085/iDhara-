@@ -12,6 +12,7 @@ interface LiveFeedSimulatorProps {
   roads: RoadSegmentState[];
   sensors: SensorNode[];
   activityFeed: ActivityFeedEntry[];
+  activeRouteRoadIds?: string[];
   onInjectObservation: (
     type: ObservationInjectionType,
     targetId: string
@@ -25,13 +26,23 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
   roads,
   sensors,
   activityFeed,
+  activeRouteRoadIds,
   onInjectObservation,
   onResetObservations,
   onSelectMapTarget,
   compact = false,
 }) => {
-  const [selectedRoadId, setSelectedRoadId] = useState<string>('RD-14'); // Patel Bridge & Station Link (Regal <-> Sarwate)
+  const [selectedRoadId, setSelectedRoadId] = useState<string>(
+    activeRouteRoadIds?.[0] ?? 'RD-14'
+  ); // Defaults to first passable road on active route or Patel Bridge
   const [selectedSensorId, setSelectedSensorId] = useState<string>('SEN-WL-01'); // Krishnapura Bridge Gauge
+
+  // Keep selectedRoadId aligned if active route changes and user hasn't manually switched
+  React.useEffect(() => {
+    if (activeRouteRoadIds && activeRouteRoadIds.length > 0 && !activeRouteRoadIds.includes(selectedRoadId)) {
+      setSelectedRoadId(activeRouteRoadIds[0]);
+    }
+  }, [activeRouteRoadIds]);
 
   return (
     <div className="bg-[#080C14] border border-slate-800/90 p-3 space-y-3">
@@ -71,11 +82,15 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
             onChange={(e) => setSelectedRoadId(e.target.value)}
             className="flex-1 min-w-0 bg-[#0D1320] border border-slate-700 text-slate-200 px-2 py-1 text-[11px] truncate"
           >
-            {roads.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.id}: {r.name.slice(0, 28)} ({r.currentState})
-              </option>
-            ))}
+            {roads.map((r) => {
+              const isOnRoute = activeRouteRoadIds?.includes(r.id);
+              return (
+                <option key={r.id} value={r.id}>
+                  {isOnRoute ? '★ [ON ROUTE] ' : ''}
+                  {r.id}: {r.name.slice(0, 24)} ({r.currentState})
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -114,6 +129,14 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
           className="px-2.5 py-1.5 bg-cyan-950/50 hover:bg-cyan-900/60 border border-cyan-500/50 text-cyan-200 text-left whitespace-nowrap transition-colors"
         >
           ▲ Water-level increase
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onInjectObservation('ROAD_LIKELY_FLOODED', selectedRoadId)}
+          className="px-2.5 py-1.5 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/60 text-amber-200 text-left whitespace-nowrap transition-colors"
+        >
+          ▲ Road likely flooded
         </button>
 
         <button

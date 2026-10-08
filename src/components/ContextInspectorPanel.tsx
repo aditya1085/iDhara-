@@ -294,6 +294,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             roads={roads}
             sensors={sensors}
             activityFeed={activityFeed}
+            activeRouteRoadIds={activeRoute?.recommendedRoadIds}
             onInjectObservation={onInjectObservation}
             onResetObservations={onResetObservations}
             onSelectMapTarget={handleSelectAndInspect}
@@ -614,6 +615,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               roads={roads}
               sensors={sensors}
               activityFeed={activityFeed}
+              activeRouteRoadIds={activeRoute?.recommendedRoadIds}
               onInjectObservation={onInjectObservation}
               onResetObservations={onResetObservations}
               onSelectMapTarget={handleSelectAndInspect}
@@ -966,7 +968,14 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 <div className="text-slate-400 text-[10px]">
                   INJECT OBSERVATION ON {inspectedRoad.id}:
                 </div>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onInjectObservation('ROAD_LIKELY_FLOODED', inspectedRoad.id)}
+                    className="px-2 py-1.5 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/60 text-amber-200 whitespace-nowrap"
+                  >
+                    ▲ Likely flooded
+                  </button>
                   <button
                     type="button"
                     onClick={() => onInjectObservation('ROAD_CLOSURE', inspectedRoad.id)}
@@ -984,7 +993,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                   <button
                     type="button"
                     onClick={() => onInjectObservation('CROWD_REPORT', inspectedRoad.id)}
-                    className="px-2 py-1.5 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/50 text-amber-200 whitespace-nowrap"
+                    className="px-2 py-1.5 bg-amber-950/50 hover:bg-amber-900/60 border border-amber-500/50 text-amber-200 whitespace-nowrap"
                   >
                     ⚑ Crowd report
                   </button>

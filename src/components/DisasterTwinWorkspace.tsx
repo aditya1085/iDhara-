@@ -37,6 +37,7 @@ interface DisasterTwinWorkspaceProps {
   baselineParams: ScenarioParameters;
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
+  onReturnToLive?: () => void;
 }
 
 const DURATION_OPTIONS: TwinDurationMinutes[] = [30, 60, 90, 120];
@@ -45,6 +46,7 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   baselineParams,
   selectedTarget,
   onSelectTarget,
+  onReturnToLive,
 }) => {
   // Primary interactive Scenario A controls
   const [activePreset, setActivePreset] = useState<TwinPresetId>('PLUS_20');
@@ -545,12 +547,24 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
             </div>
           </div>
         </div>
-        <div className="font-mono text-xs text-right tabular-nums">
-          <div className="text-amber-300 font-semibold">
-            Scenario Projection · Conf {Math.round(activeScenario.confidence * 100)}%
-          </div>
-          <div className="text-[11px] text-slate-300">
-            GEN {activeScenario.generated_at.slice(11, 19)}Z
+        <div className="flex items-center gap-3">
+          {onReturnToLive && (
+            <button
+              type="button"
+              onClick={onReturnToLive}
+              className="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-400 text-emerald-200 font-mono text-xs font-bold transition-colors whitespace-nowrap shadow-sm"
+              title="Exit isolated what-if simulation and return to active Indore pilot live monitoring"
+            >
+              ← Return to LIVE Monitoring
+            </button>
+          )}
+          <div className="font-mono text-xs text-right tabular-nums">
+            <div className="text-amber-300 font-semibold">
+              Scenario Projection · Conf {Math.round(activeScenario.confidence * 100)}%
+            </div>
+            <div className="text-[11px] text-slate-300">
+              GEN {activeScenario.generated_at.slice(11, 19)}Z
+            </div>
           </div>
         </div>
       </div>

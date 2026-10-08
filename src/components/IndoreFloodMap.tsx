@@ -379,6 +379,10 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           <span className="text-emerald-400 font-semibold">
             FRESHNESS: {sensors.filter((s) => s.freshnessState === 'FRESH').length}/{sensors.length} FRESH
           </span>
+          <span className="text-slate-600 hidden xl:inline">·</span>
+          <span className="text-slate-400 hidden xl:inline">
+            Prototype — simulated operational data
+          </span>
         </div>
 
         {/* Top-Right Live Route Subscription / Rerouting Status Banner */}

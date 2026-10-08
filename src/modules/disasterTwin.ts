@@ -105,14 +105,14 @@ export const OPERATIONAL_CHAIN: Array<{
   label: string;
   shortDesc: string;
 }> = [
-  { step: 'RAIN', label: 'RAIN', shortDesc: 'Pluviometer & catchment forcing' },
-  { step: 'PREDICT', label: 'PREDICT', shortDesc: '64-cell terrain-drainage model' },
-  { step: 'WARN', label: 'WARN', shortDesc: 'Ward & asset targeted advisories' },
-  { step: 'SIMULATE', label: 'SIMULATE', shortDesc: 'Culvert choke & surge stress' },
-  { step: 'VERIFY', label: 'VERIFY', shortDesc: 'Ultrasonic & field staff check' },
-  { step: 'REROUTE', label: 'REROUTE', shortDesc: 'Flood-aware ambulance corridors' },
-  { step: 'EVACUATE', label: 'EVACUATE', shortDesc: 'High-ground shelter dispatch' },
-  { step: 'LEARN', label: 'LEARN', shortDesc: 'HWM validation & model tuning' },
+  { step: 'PREDICT', label: '1. PREDICT', shortDesc: '64-cell hydrological risk grid & probability' },
+  { step: 'EXPLAIN', label: '2. EXPLAIN', shortDesc: 'Why this warning? Top physical drivers & trigger rules' },
+  { step: 'WARN', label: '3. WARN', shortDesc: 'Ward & asset targeted operational alerts & barricades' },
+  { step: 'SIMULATE', label: '4. SIMULATE', shortDesc: 'Disaster Twin what-if storm & culvert choke stress' },
+  { step: 'VERIFY', label: '5. VERIFY', shortDesc: 'Sensor health, ultrasonic telemetry & field inspection' },
+  { step: 'REROUTE', label: '6. REROUTE', shortDesc: 'Dynamic flood-aware emergency corridors' },
+  { step: 'EVACUATE', label: '7. EVACUATE', shortDesc: 'High-ground shelter dispatch & capacity allocation' },
+  { step: 'LEARN', label: '8. LEARN', shortDesc: 'Post-disaster HWM validation & model calibration' },
 ];
 
 /**
