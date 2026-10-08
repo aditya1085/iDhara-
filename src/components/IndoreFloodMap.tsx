@@ -9,6 +9,7 @@ import {
 import {
   FloodRiskCell,
   FloodSeverity,
+  MapSurfaceMetric,
   ProductMode,
   RoadSegmentState,
   RoadStatus,
@@ -36,6 +37,14 @@ interface IndoreFloodMapProps {
   onSelectTarget: (target: MapInspectionTarget) => void;
 }
 
+const MAP_METRIC_OPTIONS: Array<{ id: MapSurfaceMetric; label: string }> = [
+  { id: 'FLOOD_PROBABILITY', label: 'Flood probability' },
+  { id: 'SEVERITY', label: 'Severity' },
+  { id: 'UNCERTAINTY', label: 'Uncertainty' },
+  { id: 'DATA_CONFIDENCE', label: 'Data confidence' },
+  { id: 'RAINFALL', label: 'Rainfall' },
+];
+
 export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   mode,
   cells,
@@ -60,7 +69,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     cellLabels: true,
   });
 
-  const [metricOverlay, setMetricOverlay] = useState<'SEVERITY' | 'ELEVATION' | 'DRAINAGE'>('SEVERITY');
+  const [metricOverlay, setMetricOverlay] = useState<MapSurfaceMetric>('FLOOD_PROBABILITY');
   const [zoom, setZoom] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [hoveredInfo, setHoveredInfo] = useState<string | null>(null);
@@ -97,7 +106,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
       ) {
         matches.push({
           label: `${c.localityName} (${c.wardCode})`,
-          subLabel: `Flood Cell · ${Math.round(c.floodProbability * 100)}% risk · ${c.predictedDepthCm}cm`,
+          subLabel: `Flood Cell · ${Math.round(c.floodProbability * 100)}% prob · ${c.severity}`,
           target: { type: 'CELL', id: c.id },
           x: (c.col + 0.5) * cellSize,
           y: (c.row + 0.5) * cellSize,
@@ -175,16 +184,16 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
   return (
     <div className="relative flex flex-col w-full h-full bg-[#05080E] border border-slate-800/90 select-none overflow-hidden">
-      {/* Top Map Toolbar: Search, Pilot Overview Button, Surface Lens, Layer & Zoom Controls */}
+      {/* Top Map Toolbar: Search, Pilot Overview Button, 5-Metric Surface Switcher, Layer & Zoom Controls */}
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#0A0F1A] border-b border-slate-800/90 z-20">
         {/* Left: Map Search Input + Pilot Overview Reset */}
         <div className="flex items-center gap-2 relative">
-          <div className="relative w-56 sm:w-64">
+          <div className="relative w-48 sm:w-56">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search ward, road, gauge, hospital…"
+              placeholder="Search ward, road, gauge…"
               aria-label="Search Indore pilot map entities"
               className="w-full bg-[#060911] border border-slate-700/90 focus:border-cyan-400 text-xs font-mono text-slate-100 px-2.5 py-1.5 outline-none placeholder:text-slate-500"
             />
@@ -198,7 +207,6 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               </button>
             )}
 
-            {/* Instant Search Results Dropdown */}
             {searchResults.length > 0 && (
               <div className="absolute left-0 top-full mt-1 w-80 bg-[#0B101B] border border-slate-700 shadow-xl z-30 divide-y divide-slate-800/80 max-h-64 overflow-y-auto">
                 {searchResults.map((item, idx) => (
@@ -220,52 +228,35 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             )}
           </div>
 
-          {/* Current Location / Pilot Overview Button */}
           <button
             type="button"
             onClick={handleResetPilotOverview}
             className="px-2.5 py-1.5 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
             title="Reset viewport to full 5km × 5km Indore Pilot Overview"
           >
-            ⌖ Indore Pilot Overview
+            ⌖ Pilot Overview
           </button>
         </div>
 
-        {/* Center: Heatmap / DEM / Drainage Surface Selector */}
-        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800">
-          <button
-            type="button"
-            onClick={() => setMetricOverlay('SEVERITY')}
-            className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
-              metricOverlay === 'SEVERITY'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Flood Heatmap & Depth
-          </button>
-          <button
-            type="button"
-            onClick={() => setMetricOverlay('ELEVATION')}
-            className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
-              metricOverlay === 'ELEVATION'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Terrain DEM (m MSL)
-          </button>
-          <button
-            type="button"
-            onClick={() => setMetricOverlay('DRAINAGE')}
-            className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
-              metricOverlay === 'DRAINAGE'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Drainage Proxy
-          </button>
+        {/* Center: 5-Way Map Surface Switcher (Flood probability | Severity | Uncertainty | Data confidence | Rainfall) */}
+        <div className="flex flex-wrap items-center gap-1 bg-[#060911] p-0.5 border border-slate-800">
+          {MAP_METRIC_OPTIONS.map((opt) => {
+            const active = metricOverlay === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setMetricOverlay(opt.id)}
+                className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+                  active
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Right: Layer Control Dropdown & Zoom Controls */}
@@ -305,7 +296,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 { key: 'rainGauges', label: 'Rain Gauges (4 AWS)' },
                 { key: 'waterLevelSensors', label: 'Water-Level Sensors (6)' },
                 { key: 'assetsAndShelters', label: 'Hospitals & Relief Shelters' },
-                { key: 'cellLabels', label: 'Ward & Depth Readouts' },
+                { key: 'cellLabels', label: 'Ward & Metric Readouts' },
               ].map((item) => {
                 const active = layers[item.key as keyof typeof layers];
                 return (
@@ -356,11 +347,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         {/* Top-Left Prototype / Mode Watermark Stamp on Map */}
         <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-2 bg-[#090D16]/90 border border-slate-800 px-2.5 py-1 font-mono text-[11px]">
           <span className={`font-semibold ${modeMeta.accentText}`}>
-            {modeMeta.indicatorSymbol} {mode} DATA LAYER
+            {modeMeta.indicatorSymbol} {mode} PROTOTYPE LAYER
           </span>
           <span className="text-slate-600">·</span>
-          <span className="text-slate-400">
-            {PILOT_BOUNDS.cityName}
+          <span className="text-slate-300">
+            Active View: {MAP_METRIC_OPTIONS.find((m) => m.id === metricOverlay)?.label}
           </span>
         </div>
 
@@ -375,7 +366,6 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           aria-label="Indore 5 by 5 kilometer interactive flood prediction heatmap and disaster twin map"
         >
           <defs>
-            {/* Non-hue-only SVG patterns for Flood Severity */}
             <pattern
               id="pattern-critical-crosshatch"
               width="16"
@@ -412,7 +402,6 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               <circle cx="10" cy="10" r="1.5" fill="rgba(250, 204, 21, 0.48)" />
             </pattern>
 
-            {/* Radial Gradients for Continuous Flood-Risk Heatmap */}
             <radialGradient id="heatmap-critical" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stopColor="#EF4444" stopOpacity="0.52" />
               <stop offset="55%" stopColor="#F97316" stopOpacity="0.24" />
@@ -432,7 +421,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
           {/* 0. Continuous Flood-Risk Heatmap Glow Underlay */}
           {layers.heatmapGlow &&
-            metricOverlay === 'SEVERITY' &&
+            (metricOverlay === 'FLOOD_PROBABILITY' || metricOverlay === 'SEVERITY') &&
             cells
               .filter(
                 (c) =>
@@ -468,22 +457,44 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 selectedTarget.type === 'CELL' && selectedTarget.id === cell.id;
               const sevMeta = SEVERITY_META[cell.severity];
 
+              // Compute fill based on active 5-metric overlay
               let fillStyle = sevMeta.svgFill;
-              if (metricOverlay === 'ELEVATION') {
-                const normElev = (cell.elevationM - 544) / 18;
+              if (metricOverlay === 'FLOOD_PROBABILITY') {
+                const p = cell.floodProbability;
                 fillStyle =
-                  normElev < 0.25
-                    ? 'rgba(14, 165, 233, 0.36)'
-                    : normElev < 0.55
-                    ? 'rgba(56, 189, 248, 0.18)'
-                    : 'rgba(148, 163, 184, 0.08)';
-              } else if (metricOverlay === 'DRAINAGE') {
+                  p >= 0.74
+                    ? 'rgba(239, 68, 68, 0.36)'
+                    : p >= 0.52
+                    ? 'rgba(249, 115, 22, 0.28)'
+                    : p >= 0.30
+                    ? 'rgba(234, 179, 8, 0.20)'
+                    : 'rgba(16, 185, 129, 0.09)';
+              } else if (metricOverlay === 'SEVERITY') {
+                fillStyle = sevMeta.svgFill;
+              } else if (metricOverlay === 'UNCERTAINTY') {
+                const u = cell.uncertaintyBand;
                 fillStyle =
-                  cell.drainageProxyScore < 0.35
-                    ? 'rgba(239, 68, 68, 0.34)'
-                    : cell.drainageProxyScore < 0.6
-                    ? 'rgba(234, 179, 8, 0.22)'
-                    : 'rgba(16, 185, 129, 0.14)';
+                  u >= 0.12
+                    ? 'rgba(168, 85, 247, 0.36)'
+                    : u >= 0.08
+                    ? 'rgba(245, 158, 11, 0.25)'
+                    : 'rgba(14, 165, 233, 0.14)';
+              } else if (metricOverlay === 'DATA_CONFIDENCE') {
+                const conf = cell.confidence;
+                fillStyle =
+                  conf >= 0.85
+                    ? 'rgba(16, 185, 129, 0.26)'
+                    : conf >= 0.72
+                    ? 'rgba(56, 189, 248, 0.20)'
+                    : 'rgba(244, 63, 94, 0.28)';
+              } else if (metricOverlay === 'RAINFALL') {
+                const r = cell.predictionInput.rainfall_1h;
+                fillStyle =
+                  r >= 55
+                    ? 'rgba(14, 165, 233, 0.42)'
+                    : r >= 35
+                    ? 'rgba(56, 189, 248, 0.26)'
+                    : 'rgba(125, 211, 252, 0.12)';
               }
 
               return (
@@ -492,9 +503,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   onClick={() => onSelectTarget({ type: 'CELL', id: cell.id })}
                   onMouseEnter={() =>
                     setHoveredInfo(
-                      `${cell.id} · ${cell.localityName} (${cell.wardCode}) · ${sevMeta.glyph} ${sevMeta.label} · Prob ${Math.round(
+                      `${cell.id} · ${cell.localityName} (${cell.wardCode}) · Prob ${Math.round(
                         cell.floodProbability * 100
-                      )}% · Depth ${cell.predictedDepthCm}cm · Elev ${cell.elevationM}m`
+                      )}% · Sev ${sevMeta.label} · Warn ${cell.warningLevel} · Conf ${Math.round(
+                        cell.confidence * 100
+                      )}% · Onset ${cell.expectedOnsetLabel}`
                     )
                   }
                   onMouseLeave={() => setHoveredInfo(null)}
@@ -511,7 +524,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   />
 
                   {layers.patterns &&
-                    metricOverlay === 'SEVERITY' &&
+                    (metricOverlay === 'SEVERITY' || metricOverlay === 'FLOOD_PROBABILITY') &&
                     sevMeta.patternId !== 'none' && (
                       <rect
                         x={x}
@@ -543,19 +556,19 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                         x={x + 7}
                         y={y + 16}
                         fill={
-                          cell.severity === FloodSeverity.CRITICAL
+                          cell.warningLevel === 'RED'
                             ? '#FCA5A5'
-                            : cell.severity === FloodSeverity.HIGH
+                            : cell.warningLevel === 'ORANGE'
                             ? '#FDBA74'
-                            : cell.severity === FloodSeverity.MODERATE
+                            : cell.warningLevel === 'YELLOW'
                             ? '#FDE047'
                             : '#6EE7B7'
                         }
-                        fontSize="11"
+                        fontSize="10.5"
                         fontFamily="IBM Plex Mono, monospace"
                         fontWeight="600"
                       >
-                        {sevMeta.glyph} {sevMeta.shortCode} · {cell.wardCode}
+                        {sevMeta.glyph} {cell.warningLevel} · {cell.wardCode}
                       </text>
 
                       <text
@@ -574,18 +587,20 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                       <text
                         x={x + 7}
                         y={y + cellSize - 9}
-                        fill="#94A3B8"
+                        fill="#CBD5E1"
                         fontSize="10.5"
                         fontFamily="IBM Plex Mono, monospace"
                       >
+                        {metricOverlay === 'FLOOD_PROBABILITY' &&
+                          `Prob ${Math.round(cell.floodProbability * 100)}% · ${cell.expectedOnsetLabel}`}
                         {metricOverlay === 'SEVERITY' &&
-                          `${Math.round(cell.floodProbability * 100)}% · ${cell.predictedDepthCm}cm`}
-                        {metricOverlay === 'ELEVATION' &&
-                          `${cell.elevationM}m MSL · ${cell.slopeDeg}°`}
-                        {metricOverlay === 'DRAINAGE' &&
-                          `Drain ${cell.drainageProxyScore.toFixed(2)} · Imp ${Math.round(
-                            cell.imperviousness * 100
-                          )}%`}
+                          `${sevMeta.label} · ${cell.predictedDepthCm}cm`}
+                        {metricOverlay === 'UNCERTAINTY' &&
+                          `Spread ±${Math.round(cell.uncertaintyBand * 100)}%`}
+                        {metricOverlay === 'DATA_CONFIDENCE' &&
+                          `Conf ${Math.round(cell.confidence * 100)}% · ${cell.freshnessLabel}`}
+                        {metricOverlay === 'RAINFALL' &&
+                          `1h: ${cell.predictionInput.rainfall_1h}mm · 3h: ${cell.predictionInput.rainfall_3h}mm`}
                       </text>
                     </g>
                   )}
@@ -928,7 +943,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </>
           )}
 
-          {/* 8. Rain Gauges & Water-Level Sensors (Separately Toggleable) */}
+          {/* 8. Rain Gauges & Water-Level Sensors */}
           {sensors
             .filter(
               (s) =>
@@ -987,33 +1002,65 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             })}
         </svg>
 
-        {/* Floating Bottom-Left Multi-Modal Legend */}
+        {/* Floating Bottom-Left Clean Context-Aware Legend */}
         <div className="absolute bottom-3 left-3 bg-[#090D16]/95 border border-slate-800 px-3 py-2 text-[11px] font-mono text-slate-300 pointer-events-none max-w-lg">
           <div className="text-[10px] text-slate-400 mb-1 font-semibold">
-            FLOOD SEVERITY & ASSET LEGEND (COLOR + GLYPH + HATCH PATTERN)
+            {metricOverlay === 'FLOOD_PROBABILITY' && 'FLOOD PROBABILITY & WARNING LEVEL LEGEND'}
+            {metricOverlay === 'SEVERITY' && 'MULTI-MODAL FLOOD SEVERITY LEGEND (COLOR + GLYPH + PATTERN)'}
+            {metricOverlay === 'UNCERTAINTY' && 'PREDICTION UNCERTAINTY SPREAD LEGEND (±PROBABILITY)'}
+            {metricOverlay === 'DATA_CONFIDENCE' && 'CELL DATA CONFIDENCE & TELEMETRY FRESHNESS LEGEND'}
+            {metricOverlay === 'RAINFALL' && 'SPATIAL RAINFALL ACCUMULATION LEGEND (1H / 3H MM)'}
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-1.5">
-            <div className="flex items-center gap-1 text-rose-400">
-              <span>✖ CRITICAL</span>
-              <span className="text-[10px] text-slate-400">(Hatch)</span>
+
+          {(metricOverlay === 'FLOOD_PROBABILITY' || metricOverlay === 'SEVERITY') && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-1.5">
+              <div className="flex items-center gap-1 text-rose-400">
+                <span>✖ RED / CRIT</span>
+                <span className="text-[10px] text-slate-400">(≥74%)</span>
+              </div>
+              <div className="flex items-center gap-1 text-amber-400">
+                <span>▲ ORANGE / HIGH</span>
+                <span className="text-[10px] text-slate-400">(52–73%)</span>
+              </div>
+              <div className="flex items-center gap-1 text-yellow-300">
+                <span>◆ YELLOW / MOD</span>
+                <span className="text-[10px] text-slate-400">(30–51%)</span>
+              </div>
+              <div className="flex items-center gap-1 text-emerald-400">
+                <span>● GREEN / LOW</span>
+                <span className="text-[10px] text-slate-400">(&lt;30%)</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1 text-amber-400">
-              <span>▲ HIGH</span>
-              <span className="text-[10px] text-slate-400">(Stripe)</span>
+          )}
+
+          {metricOverlay === 'UNCERTAINTY' && (
+            <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
+              <span className="text-sky-300">● Low Spread (≤±7%)</span>
+              <span className="text-amber-300">▲ Moderate Spread (±8–11%)</span>
+              <span className="text-purple-300">✖ High Epistemic Spread (≥±12%)</span>
             </div>
-            <div className="flex items-center gap-1 text-yellow-300">
-              <span>◆ MODERATE</span>
-              <span className="text-[10px] text-slate-400">(Dots)</span>
+          )}
+
+          {metricOverlay === 'DATA_CONFIDENCE' && (
+            <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
+              <span className="text-emerald-300">● High Conf (≥85%)</span>
+              <span className="text-sky-300">◆ Moderate Conf (72–84%)</span>
+              <span className="text-rose-300">▲ Degraded / Stale (&lt;72%)</span>
             </div>
-            <div className="flex items-center gap-1 text-emerald-400">
-              <span>● LOW</span>
-              <span className="text-[10px] text-slate-400">(Clear)</span>
+          )}
+
+          {metricOverlay === 'RAINFALL' && (
+            <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
+              <span className="text-sky-200">● Moderate (&lt;35 mm/h)</span>
+              <span className="text-sky-400">◆ Heavy (35–54 mm/h)</span>
+              <span className="text-cyan-300 font-semibold">▲ Cloudburst (≥55 mm/h)</span>
             </div>
-          </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-slate-800/80 pt-1">
-            <span className="text-sky-400">┅┅ 5×5km Pilot Boundary</span>
+            <span className="text-sky-400">┅┅ 5×5km Pilot</span>
             <span className="text-cyan-300">━ Recommended Route</span>
-            <span className="text-rose-400">┅✖┅ Closed Road</span>
+            <span className="text-rose-400">┅✖┅ Closed Bridge</span>
             <span className="text-cyan-300">◉WL / ◉RG Sensors</span>
             <span className="text-emerald-300">▲S Shelter</span>
             <span className="text-sky-300">✚ Hospital</span>
@@ -1040,9 +1087,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         <span className="truncate">
           {hoveredInfo
             ? `PROBE: ${hoveredInfo}`
-            : 'EOC MAP READY: Click any cell, road, sensor, hospital, or shelter to inspect or use Map Search above.'}
+            : 'EOC MAP READY: Click any cell to inspect Flood Probability, Severity, Confidence, Expected Onset, and Top Drivers.'}
         </span>
-        <span className="text-slate-500 shrink-0">Indore 5×5 km Grid</span>
+        <span className="text-slate-500 shrink-0">Deterministic Weighted Model</span>
       </div>
     </div>
   );

@@ -38,6 +38,53 @@ export enum FloodSeverity {
   CRITICAL = 'CRITICAL',
 }
 
+export enum WarningLevel {
+  GREEN = 'GREEN',
+  YELLOW = 'YELLOW',
+  ORANGE = 'ORANGE',
+  RED = 'RED',
+}
+
+export type MapSurfaceMetric =
+  | 'FLOOD_PROBABILITY'
+  | 'SEVERITY'
+  | 'UNCERTAINTY'
+  | 'DATA_CONFIDENCE'
+  | 'RAINFALL';
+
+export interface CellPredictionInput {
+  rainfall_1h: number;
+  rainfall_3h: number;
+  rainfall_6h: number;
+  rainfall_24h: number;
+  elevation: number; // m MSL
+  slope: number; // degrees
+  flow_accumulation: number; // 0.0 - 1.0
+  drainage_proxy: number; // 0.0 - 1.0
+  imperviousness: number; // 0.0 - 1.0
+  historical_flood_score: number; // 0.0 - 1.0
+  road_exposure: number; // 0.0 - 1.0
+}
+
+export interface CellPredictionOutput {
+  flood_probability: number; // 0.0 - 1.0
+  severity: FloodSeverity;
+  uncertainty: number; // 0.0 - 1.0 spread
+  data_confidence: number; // 0.0 - 1.0
+  top_drivers: FloodDriver[];
+  lead_time: number; // expected onset in minutes
+}
+
+export interface WarningHysteresisState {
+  rawLevel: WarningLevel;
+  effectiveLevel: WarningLevel;
+  actionDirective: string; // e.g. 'RED — ACTIVATE & EVACUATE', 'ORANGE — PREPARE'
+  isHoldingDeescalation: boolean;
+  stableTicksCount: number;
+  requiredStableTicks: number;
+  rationale: string;
+}
+
 export enum RoadStatus {
   OPEN = 'OPEN',
   CAUTION_WATERLOGGING = 'CAUTION_WATERLOGGING',
@@ -103,10 +150,15 @@ export interface BaseGridCell {
 export interface FloodRiskCell extends BaseGridCell, DataProvenance {
   rainfallMmHr: number;
   cumulativeRainfallMm: number;
+  predictionInput: CellPredictionInput;
   floodProbability: number; // 0.0 - 1.0
   predictedDepthCm: number;
   observedDepthCm?: number; // available in historical / validation or sensor-adjacent cells
   severity: FloodSeverity;
+  warningLevel: WarningLevel;
+  warningHysteresis: WarningHysteresisState;
+  leadTimeMin: number;
+  expectedOnsetLabel: string;
   uncertaintyBand: number; // +/- probability spread
   topDrivers: FloodDriver[];
   dataFreshnessSec: number;

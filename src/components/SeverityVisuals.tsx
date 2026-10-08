@@ -4,7 +4,71 @@ import {
   FloodSeverity,
   ProductMode,
   RoadStatus,
+  WarningLevel,
 } from '../types/idhara';
+
+export const WARNING_LEVEL_META: Record<
+  WarningLevel,
+  {
+    level: WarningLevel;
+    actionTitle: string;
+    glyph: string;
+    textColor: string;
+    borderColor: string;
+    bgTint: string;
+    ruleSummary: string;
+  }
+> = {
+  [WarningLevel.RED]: {
+    level: WarningLevel.RED,
+    actionTitle: 'RED — EVACUATE & BARRICADE',
+    glyph: '✖',
+    textColor: 'text-rose-400',
+    borderColor: 'border-rose-500/70',
+    bgTint: 'bg-rose-950/45',
+    ruleSummary: 'Severity = CRITICAL AND Flood Probability ≥ 72%',
+  },
+  [WarningLevel.ORANGE]: {
+    level: WarningLevel.ORANGE,
+    actionTitle: 'ORANGE — PREPARE',
+    glyph: '▲',
+    textColor: 'text-amber-400',
+    borderColor: 'border-amber-500/70',
+    bgTint: 'bg-amber-950/40',
+    ruleSummary: 'Severity = CRITICAL OR (Severity = HIGH AND Probability ≥ 54%)',
+  },
+  [WarningLevel.YELLOW]: {
+    level: WarningLevel.YELLOW,
+    actionTitle: 'YELLOW — WATCH',
+    glyph: '◆',
+    textColor: 'text-yellow-300',
+    borderColor: 'border-yellow-500/60',
+    bgTint: 'bg-yellow-950/35',
+    ruleSummary: 'Severity = MODERATE/HIGH OR Flood Probability ≥ 30%',
+  },
+  [WarningLevel.GREEN]: {
+    level: WarningLevel.GREEN,
+    actionTitle: 'GREEN — MONITOR',
+    glyph: '●',
+    textColor: 'text-emerald-400',
+    borderColor: 'border-emerald-500/50',
+    bgTint: 'bg-emerald-950/25',
+    ruleSummary: 'Severity = LOW AND Flood Probability < 30%',
+  },
+};
+
+export const WarningLevelIndicator: React.FC<{
+  level: WarningLevel;
+  showDirective?: boolean;
+}> = ({ level, showDirective = true }) => {
+  const meta = WARNING_LEVEL_META[level];
+  return (
+    <span className={`inline-flex items-center gap-1.5 font-mono text-xs font-bold ${meta.textColor}`}>
+      <span aria-hidden="true">{meta.glyph}</span>
+      <span>{showDirective ? meta.actionTitle : meta.level}</span>
+    </span>
+  );
+};
 
 export const SEVERITY_META: Record<
   FloodSeverity,

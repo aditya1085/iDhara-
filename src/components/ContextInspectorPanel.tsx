@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { CRITICAL_ASSETS } from '../data/indorePilotData';
 import { createProvenance } from '../modules/dataIngestion';
+import { defaultPredictionEngine } from '../modules/prediction';
 import {
   AlertItem,
   EvacuationPlanItem,
   FloodRiskCell,
   FloodSeverity,
   NavigationTab,
-  ProductMode,
   RoadSegmentState,
   RoadStatus,
   RouteRecommendation,
@@ -15,12 +15,15 @@ import {
   SensorNode,
   Shelter,
   UserRole,
+  WarningLevel,
 } from '../types/idhara';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import {
   ProvenanceStrip,
   RoadStateIndicator,
   SeverityIndicator,
+  WARNING_LEVEL_META,
+  WarningLevelIndicator,
 } from './SeverityVisuals';
 
 interface ContextInspectorPanelProps {
@@ -36,6 +39,8 @@ interface ContextInspectorPanelProps {
   activeRoute: RouteRecommendation | null;
   activeRole: UserRole;
   onNavigateTab: (tab: NavigationTab) => void;
+  stableTicksElapsed: number;
+  onStepStableTick: () => void;
 }
 
 export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
@@ -51,8 +56,23 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
   activeRoute,
   activeRole,
   onNavigateTab,
+  stableTicksElapsed,
+  onStepStableTick,
 }) => {
   const [panelTab, setPanelTab] = useState<'SITUATION' | 'INSPECTOR'>('SITUATION');
+  const [expandedWhyIds, setExpandedWhyIds] = useState<Set<string>>(
+    new Set(['CARD-PRIMARY'])
+  );
+
+  const toggleWhyWarning = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setExpandedWhyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // High-risk zones & At-risk roads computation for "Situation Overview"
   const highRiskZones = useMemo(
@@ -98,105 +118,69 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
     });
   }, [cells]);
 
-  // Dynamic "Recommended Actions" generated from current simulated state
-  const dynamicRecommendations = useMemo(() => {
-    const worstCell =
-      [...cells].sort((a, b) => b.predictedDepthCm - a.predictedDepthCm)[0] ??
-      cells[18];
-    const hospitalRoad =
-      roads.find((r) => r.id === 'RD-05') ?? roads[0];
-    const primaryShelter = shelters[0];
-    const prioritySensor =
-      sensors.find(
-        (s) =>
-          s.status === 'STALE' ||
-          s.status === 'DRIFTING' ||
-          s.status === 'CRITICAL_THRESHOLD'
-      ) ??
-      sensors.find((s) => s.id === 'SEN-WL-04') ??
-      sensors[0];
-
-    const prov = createProvenance(
-      params.mode,
-      worstCell.confidence,
-      params.timelineHourOffset
+  // Action Cards built from the top representative warning clusters across the city
+  const actionCards = useMemo(() => {
+    const sortedByProb = [...cells].sort(
+      (a, b) => b.floodProbability - a.floodProbability
     );
-    const expiryIso = new Date(
-      new Date(prov.generated_at).getTime() + 15 * 60 * 1000
-    ).toISOString();
+    const primaryHotspot = sortedByProb[0] ?? cells[18];
+    const secondaryCell =
+      cells.find((c) => c.id === 'CELL-R3C4') ?? // Sarwate Bus Stand
+      sortedByProb[3] ??
+      cells[28];
+    const mthHospitalCell =
+      cells.find((c) => c.id === 'CELL-R2C3') ?? cells[19];
+
+    const buildCard = (id: string, cell: FloodRiskCell, customActions: string[]) => {
+      const prov = createProvenance(
+        params.mode,
+        cell.confidence,
+        params.timelineHourOffset
+      );
+      const expiryIso = new Date(
+        new Date(prov.generated_at).getTime() + 18 * 60 * 1000
+      ).toISOString();
+
+      return {
+        id,
+        cell,
+        warningLevel: cell.warningLevel,
+        directive: WARNING_LEVEL_META[cell.warningLevel].actionTitle,
+        floodProbabilityPct: Math.round(cell.floodProbability * 100),
+        confidencePct: Math.round(cell.confidence * 100),
+        leadTimeMin: cell.leadTimeMin,
+        actions: customActions,
+        generated_at: prov.generated_at,
+        expiry: expiryIso,
+        confidence: cell.confidence,
+      };
+    };
 
     return [
-      {
-        id: 'ACT-LOW-POINT',
-        title: `Monitor ${worstCell.localityName} low point`,
-        detail: `${worstCell.wardCode} depression at ${Math.round(
-          worstCell.floodProbability * 100
-        )}% flood probability (~${worstCell.predictedDepthCm} cm depth) under ${
-          params.rainfallIntensityMmHr
-        } mm/h rain.`,
-        severity: worstCell.severity,
-        target: { type: 'CELL' as const, id: worstCell.id },
-        generated_at: prov.generated_at,
-        expiry: expiryIso,
-        confidence: worstCell.confidence,
-        actionStep: 'PREDICT → WARN',
-      },
-      {
-        id: 'ACT-HOSPITAL-ROUTE',
-        title: 'Prepare alternate route to hospital (MY & MTH)',
-        detail:
-          hospitalRoad.currentState === RoadStatus.CLOSED_INUNDATED ||
-          hospitalRoad.currentState === RoadStatus.RESTRICTED_SHALLOW
-            ? `${hospitalRoad.name} is ${hospitalRoad.currentState.replace(
-                /_/g,
-                ' '
-              )}. Divert ambulances via Regal–Palasia–MY Hospital corridor (Recommended under current data).`
-            : `Pre-stage traffic diversion at Krishnapura Bridge (${Math.round(
-                hospitalRoad.floodProbability * 100
-              )}% risk); keep Regal–MY Hospital corridor clear.`,
-        severity:
-          hospitalRoad.currentState === RoadStatus.CLOSED_INUNDATED
-            ? FloodSeverity.CRITICAL
-            : FloodSeverity.HIGH,
-        target: { type: 'ROAD' as const, id: hospitalRoad.id },
-        generated_at: prov.generated_at,
-        expiry: expiryIso,
-        confidence: hospitalRoad.confidence,
-        actionStep: 'REROUTE',
-      },
-      {
-        id: 'ACT-EVAC-READINESS',
-        title: 'Review evacuation readiness & shelter berths',
-        detail: `${affectedPopulation.toLocaleString()} citizens across ${
-          highRiskZones.length
-        } high-risk cells; ${primaryShelter.name} at ${primaryShelter.currentOccupancy}/${
-          primaryShelter.totalCapacity
-        } occupancy.`,
-        severity:
-          highRiskZones.length > 6 ? FloodSeverity.CRITICAL : FloodSeverity.HIGH,
-        target: { type: 'SHELTER' as const, id: primaryShelter.id },
-        generated_at: prov.generated_at,
-        expiry: expiryIso,
-        confidence: primaryShelter.confidence,
-        actionStep: 'EVACUATE',
-      },
-      {
-        id: 'ACT-VERIFY-SENSOR',
-        title: `Verify water-level sensor (${prioritySensor.id})`,
-        detail: `${prioritySensor.name} reading ${prioritySensor.currentValue} ${prioritySensor.unit} (${prioritySensor.status}). Cross-check staff gauge & clear culvert trash screen.`,
-        severity:
-          prioritySensor.status === 'STALE' ||
-          prioritySensor.status === 'CRITICAL_THRESHOLD'
-            ? FloodSeverity.HIGH
-            : FloodSeverity.MODERATE,
-        target: { type: 'SENSOR' as const, id: prioritySensor.id },
-        generated_at: prov.generated_at,
-        expiry: expiryIso,
-        confidence: prioritySensor.confidence,
-        actionStep: 'VERIFY',
-      },
+      buildCard('CARD-PRIMARY', primaryHotspot, [
+        `Monitor affected roads (${
+          atRiskRoads[0]?.name ?? 'MG Road / Krishnapura Bridge'
+        })`,
+        `Verify nearby water-level sensor (${
+          primaryHotspot.verifiedBySensorId ?? 'SEN-WL-01'
+        })`,
+        'Prepare alternate hospital route via Regal–Palasia elevated corridor',
+        `Review evacuation readiness for ${primaryHotspot.localityName} (${primaryHotspot.wardCode})`,
+      ]),
+      buildCard('CARD-SARWATE', secondaryCell, [
+        'Monitor Sarwate Underpass & Patel Bridge approach for curb ponding',
+        'Verify water-level sensor SEN-WL-04 & activate sump pumps',
+        'Prepare AICTSL bus diversion away from low-lying transit bays',
+        'Review evacuation readiness at Holkar Science College shelter (SH-04)',
+      ]),
+      buildCard('CARD-HOSPITAL', mthHospitalCell, [
+        'Monitor MTH Hospital eastern ambulance gate waterlogging',
+        'Verify ultrasonic stage at Krishnapura Bridge (SEN-WL-01)',
+        'Prepare alternate neonatal ambulance route via Regal Square',
+        'Review standby dewatering pump readiness with Chimanbagh SDRF',
+      ]),
     ];
-  }, [cells, roads, shelters, sensors, params, affectedPopulation, highRiskZones.length]);
+  }, [cells, atRiskRoads, params.mode, params.timelineHourOffset]);
 
   const inspectedCell =
     selectedTarget.type === 'CELL'
@@ -223,18 +207,22 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
       ? CRITICAL_ASSETS.find((a) => a.id === selectedTarget.id) ?? CRITICAL_ASSETS[0]
       : null;
 
-  const highGroundReferenceCell =
-    cells.find((c) => c.id === 'CELL-R7C6') ?? cells[0];
-
   const handleSelectAndInspect = (target: MapInspectionTarget) => {
     onSelectTarget(target);
     setPanelTab('INSPECTOR');
   };
 
   return (
-    <aside className="w-full lg:w-[400px] xl:w-[430px] shrink-0 bg-[#090D16] border-l border-slate-800/90 flex flex-col h-full overflow-y-auto">
-      {/* Right Panel Mode Switcher: Situation Overview vs Selected Entity Inspector */}
-      <div className="px-3.5 py-2.5 border-b border-slate-800/90 bg-[#0B101B] flex items-center justify-between gap-2 shrink-0">
+    <aside className="w-full lg:w-[410px] xl:w-[440px] shrink-0 bg-[#090D16] border-l border-slate-800/90 flex flex-col h-full overflow-y-auto">
+      {/* Right Panel Mode Switcher */}
+      <div className="px-3.5 py-2.5 border-b border-slate-800/90 bg-[#0B101B] flex flex-col gap-1.5 shrink-0">
+        <div className="flex items-center justify-between font-mono text-[10.5px]">
+          <span className="text-cyan-400 font-semibold">
+            WHAT SHOULD THE CITY DO NEXT?
+          </span>
+          <span className="text-slate-400">{activeRole}</span>
+        </div>
+
         <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 w-full">
           <button
             type="button"
@@ -245,7 +233,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Situation & Actions
+            Action Cards & Situation
           </button>
           <button
             type="button"
@@ -256,51 +244,199 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Inspect ({selectedTarget.type}: {selectedTarget.id.replace('CELL-', '')})
+            Cell / Target Prediction ({selectedTarget.id.replace('CELL-', '')})
           </button>
         </div>
       </div>
 
       {/* ==================================================
-          VIEW 1: SITUATION OVERVIEW + RECOMMENDED ACTIONS
+          VIEW 1: ACTION CARDS + SITUATION OVERVIEW
           ================================================== */}
       {panelTab === 'SITUATION' && (
         <div className="p-4 space-y-4 flex-1">
-          {/* SECTION A: SITUATION OVERVIEW */}
-          <section aria-label="Situation Overview" className="space-y-3">
+          {/* SECTION A: EARLY-WARNING ACTION CARDS + "WHY THIS WARNING?" */}
+          <section aria-label="Action Cards" className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-800/90 pb-2">
               <div>
-                <div className="font-mono text-[10.5px] text-cyan-400">
-                  INDORE PILOT INTELLIGENCE SUMMARY
+                <div className="font-mono text-[10.5px] text-amber-400">
+                  EARLY-WARNING & RESPONSE ACTION CARDS
                 </div>
                 <h2 className="text-sm font-semibold text-white">
-                  Situation Overview
+                  What Should the City Do Next?
                 </h2>
               </div>
-              <span className="font-mono text-[11px] text-slate-400 tabular-nums">
-                Mode: <strong className="text-slate-200">{params.mode}</strong>
+              <span className="font-mono text-[10.5px] text-slate-400">
+                Hysteresis Active
               </span>
             </div>
 
-            {/* 5 Core Situation Metrics */}
+            {actionCards.map((card) => {
+              const wMeta = WARNING_LEVEL_META[card.warningLevel];
+              const isWhyOpen = expandedWhyIds.has(card.id);
+              const inp = card.cell.predictionInput;
+
+              return (
+                <div
+                  key={card.id}
+                  className={`p-3 border ${wMeta.borderColor} ${wMeta.bgTint} space-y-2.5 transition-colors`}
+                >
+                  {/* Warning Header */}
+                  <div className="flex items-center justify-between gap-2">
+                    <WarningLevelIndicator level={card.warningLevel} />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleSelectAndInspect({ type: 'CELL', id: card.cell.id })
+                      }
+                      className="font-mono text-[11px] text-cyan-300 hover:underline whitespace-nowrap"
+                    >
+                      {card.cell.localityName} ({card.cell.wardCode}) →
+                    </button>
+                  </div>
+
+                  {/* Probability, Confidence & Expected Onset */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs text-slate-200 tabular-nums bg-[#090D16]/80 px-2.5 py-1.5 border border-slate-800/90">
+                    <span>
+                      Flood probability:{' '}
+                      <strong className="text-white">{card.floodProbabilityPct}%</strong>
+                    </span>
+                    <span className="text-slate-600">·</span>
+                    <span>
+                      Confidence:{' '}
+                      <strong className="text-cyan-300">{card.confidencePct}%</strong>
+                    </span>
+                    <span className="text-slate-600">·</span>
+                    <span>
+                      Onset: <strong className="text-amber-300">~{card.leadTimeMin} min</strong>
+                    </span>
+                  </div>
+
+                  {/* Hysteresis Hold Notice (when de-escalating) */}
+                  {card.cell.warningHysteresis.isHoldingDeescalation && (
+                    <div className="px-2.5 py-1.5 bg-amber-950/60 border border-amber-500/50 flex items-center justify-between gap-2 font-mono text-[10.5px] text-amber-200">
+                      <span>
+                        ⧖ Hysteresis Hold ({stableTicksElapsed}/3 stable ticks before de-escalation)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={onStepStableTick}
+                        className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 whitespace-nowrap"
+                      >
+                        +1 Stable Tick
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Recommended Actions List */}
+                  <div>
+                    <div className="font-mono text-[10.5px] text-slate-300 font-semibold mb-1">
+                      Recommended actions:
+                    </div>
+                    <ul className="space-y-1 text-xs text-slate-100">
+                      {card.actions.map((act, i) => (
+                        <li key={i} className="flex items-start gap-1.5 leading-snug">
+                          <span className="text-cyan-400 font-mono">•</span>
+                          <span>{act}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  {/* Visible "Why this warning?" Interactive Button */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={(e) => toggleWhyWarning(card.id, e)}
+                      className="w-full py-1.5 px-2.5 bg-[#090D16] hover:bg-slate-900 border border-slate-700/90 text-left font-mono text-[11px] text-cyan-300 flex items-center justify-between transition-colors"
+                    >
+                      <span>
+                        {isWhyOpen ? '▼ Hide warning explanation' : '▶ Why this warning?'}
+                      </span>
+                      <span className="text-slate-400 text-[10px]">
+                        Drivers & Hysteresis Rule
+                      </span>
+                    </button>
+
+                    {isWhyOpen && (
+                      <div className="mt-1.5 p-2.5 bg-[#070A12] border border-slate-800 space-y-2 text-[11px] font-mono">
+                        <div className="text-slate-300">
+                          <span className="text-slate-400">Trigger Rule: </span>
+                          <span className={wMeta.textColor}>{wMeta.ruleSummary}</span>
+                        </div>
+                        <div className="text-slate-300">
+                          <span className="text-slate-400">Hysteresis State: </span>
+                          <span>{card.cell.warningHysteresis.rationale}</span>
+                        </div>
+
+                        <div className="border-t border-slate-800/80 pt-1.5">
+                          <div className="text-slate-400 mb-1">
+                            Top Drivers ({card.cell.localityName}):
+                          </div>
+                          <div className="space-y-1">
+                            {card.cell.topDrivers.map((drv) => (
+                              <div
+                                key={drv.factor}
+                                className="flex items-center justify-between text-slate-200"
+                              >
+                                <span>{drv.factor}</span>
+                                <span className="text-cyan-300 tabular-nums">
+                                  {drv.weight}% wt
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="border-t border-slate-800/80 pt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] text-slate-400 tabular-nums">
+                          <span>rain_1h: {inp.rainfall_1h}mm</span>
+                          <span>rain_3h: {inp.rainfall_3h}mm</span>
+                          <span>rain_6h: {inp.rainfall_6h}mm</span>
+                          <span>rain_24h: {inp.rainfall_24h}mm</span>
+                          <span>elev: {inp.elevation}m</span>
+                          <span>flow_acc: {Math.round(inp.flow_accumulation * 100)}%</span>
+                          <span>drain_proxy: {inp.drainage_proxy}</span>
+                          <span>imperv: {Math.round(inp.imperviousness * 100)}%</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Mandatory Card Provenance: generated time, expiry, data confidence */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10.5px] text-slate-300 tabular-nums pt-1.5 border-t border-slate-800/80">
+                    <span>
+                      GEN {card.generated_at.slice(11, 19)}Z · EXP {card.expiry.slice(11, 19)}Z
+                    </span>
+                    <span className="text-cyan-300 font-semibold">
+                      DATA CONF: {card.confidencePct}%
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+
+          {/* SECTION B: SITUATION OVERVIEW */}
+          <section aria-label="Situation Overview" className="space-y-2.5 pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-mono font-semibold text-slate-300 uppercase">
+                Situation Overview (Indore 5×5 km Pilot)
+              </h2>
+              <span className="font-mono text-[10.5px] text-slate-400">
+                {params.mode}
+              </span>
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <div
                 onClick={() =>
                   highRiskZones[0] &&
                   handleSelectAndInspect({ type: 'CELL', id: highRiskZones[0].id })
                 }
-                className="p-2.5 bg-[#0D1320] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
+                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
               >
-                <div className="font-mono text-[10.5px] text-slate-400">
-                  HIGH-RISK ZONES
-                </div>
-                <div className="text-xl font-mono font-semibold text-rose-400 tabular-nums mt-0.5">
-                  {highRiskZones.length}{' '}
-                  <span className="text-xs font-normal text-slate-400">/ 64 cells</span>
-                </div>
-                <div className="font-mono text-[10.5px] text-slate-300 mt-0.5 truncate">
-                  {cells.filter((c) => c.severity === FloodSeverity.CRITICAL).length} Critical ·{' '}
-                  {cells.filter((c) => c.severity === FloodSeverity.HIGH).length} High
+                <div className="font-mono text-[10px] text-slate-400">HIGH-RISK ZONES</div>
+                <div className="text-lg font-mono font-semibold text-rose-400 tabular-nums">
+                  {highRiskZones.length} <span className="text-[11px] text-slate-400">/ 64</span>
                 </div>
               </div>
 
@@ -309,140 +445,40 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                   atRiskRoads[0] &&
                   handleSelectAndInspect({ type: 'ROAD', id: atRiskRoads[0].id })
                 }
-                className="p-2.5 bg-[#0D1320] border border-slate-800 hover:border-amber-500/50 cursor-pointer"
+                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-amber-500/50 cursor-pointer"
               >
-                <div className="font-mono text-[10.5px] text-slate-400">
-                  AT-RISK ROADS
-                </div>
-                <div className="text-xl font-mono font-semibold text-amber-400 tabular-nums mt-0.5">
-                  {atRiskRoads.length}{' '}
-                  <span className="text-xs font-normal text-slate-400">/ 24 segs</span>
-                </div>
-                <div className="font-mono text-[10.5px] text-slate-300 mt-0.5 truncate">
-                  {roads.filter((r) => r.currentState === RoadStatus.CLOSED_INUNDATED).length} Closed ·{' '}
-                  {roads.filter((r) => r.currentState === RoadStatus.RESTRICTED_SHALLOW).length} Restr.
+                <div className="font-mono text-[10px] text-slate-400">AT-RISK ROADS</div>
+                <div className="text-lg font-mono font-semibold text-amber-400 tabular-nums">
+                  {atRiskRoads.length} <span className="text-[11px] text-slate-400">/ 24</span>
                 </div>
               </div>
 
               <div
                 onClick={() => onNavigateTab('evacuation')}
-                className="p-2.5 bg-[#0D1320] border border-slate-800 hover:border-cyan-500/50 cursor-pointer"
+                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-cyan-500/50 cursor-pointer"
               >
-                <div className="font-mono text-[10.5px] text-slate-400">
-                  PEOPLE & ASSETS AFFECTED
-                </div>
-                <div className="text-lg font-mono font-semibold text-white tabular-nums mt-0.5">
-                  {affectedPopulation.toLocaleString()}{' '}
-                  <span className="text-xs font-normal text-slate-400">est. pop</span>
-                </div>
-                <div className="font-mono text-[10.5px] text-cyan-300 mt-0.5 truncate">
-                  {affectedAssets.length} Critical Assets in Zone
+                <div className="font-mono text-[10px] text-slate-400">PEOPLE / ASSETS</div>
+                <div className="text-sm font-mono font-semibold text-white tabular-nums mt-0.5">
+                  {affectedPopulation.toLocaleString()} pop · {affectedAssets.length} assets
                 </div>
               </div>
 
               <div
                 onClick={() => onNavigateTab('evacuation')}
-                className="p-2.5 bg-[#0D1320] border border-slate-800 hover:border-emerald-500/50 cursor-pointer"
+                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-emerald-500/50 cursor-pointer"
               >
-                <div className="font-mono text-[10.5px] text-slate-400">
-                  OPEN SHELTERS & WARNINGS
-                </div>
-                <div className="text-lg font-mono font-semibold text-emerald-300 tabular-nums mt-0.5">
-                  {shelters.length} Open{' '}
-                  <span className="text-xs font-normal text-amber-300">
-                    · {alerts.filter((a) => !a.acknowledged).length} Warnings
-                  </span>
-                </div>
-                <div className="font-mono text-[10.5px] text-slate-300 mt-0.5 truncate">
-                  {shelters
-                    .reduce((s, sh) => s + (sh.totalCapacity - sh.currentOccupancy), 0)
-                    .toLocaleString()}{' '}
-                  berths available
+                <div className="font-mono text-[10px] text-slate-400">SHELTERS & ALERTS</div>
+                <div className="text-sm font-mono font-semibold text-emerald-300 tabular-nums mt-0.5">
+                  {shelters.length} Open · {alerts.filter((a) => !a.acknowledged).length} Alerts
                 </div>
               </div>
-            </div>
-
-            {/* Compact Top High-Risk Hotspots List */}
-            <div className="bg-[#0C121E] border border-slate-800/90 p-2.5">
-              <div className="flex items-center justify-between font-mono text-[10.5px] text-slate-400 mb-1.5">
-                <span>TOP FLOOD HOTSPOTS (CLICK TO INSPECT CELL)</span>
-                <span>PROB · DEPTH</span>
-              </div>
-              <div className="divide-y divide-slate-800/70">
-                {highRiskZones.slice(0, 4).map((z) => (
-                  <button
-                    key={z.id}
-                    type="button"
-                    onClick={() => handleSelectAndInspect({ type: 'CELL', id: z.id })}
-                    className="w-full py-1.5 flex items-center justify-between text-left hover:bg-slate-800/50 px-1 transition-colors"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <SeverityIndicator severity={z.severity} />
-                      <span className="text-xs text-slate-200 truncate">
-                        {z.localityName} ({z.wardCode})
-                      </span>
-                    </div>
-                    <span className="font-mono text-xs text-slate-300 tabular-nums shrink-0">
-                      {Math.round(z.floodProbability * 100)}% · {z.predictedDepthCm}cm
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* SECTION B: RECOMMENDED ACTIONS (Dynamically Generated from Current Simulated State) */}
-          <section aria-label="Recommended Actions" className="space-y-2.5 pt-1">
-            <div className="flex items-center justify-between border-b border-slate-800/90 pb-2">
-              <div>
-                <div className="font-mono text-[10.5px] text-amber-400">
-                  DECISION SUPPORT QUEUE ({activeRole.toUpperCase()})
-                </div>
-                <h2 className="text-sm font-semibold text-white">
-                  Recommended Actions
-                </h2>
-              </div>
-              <span className="font-mono text-[10.5px] text-slate-400">
-                State-Driven
-              </span>
-            </div>
-
-            <div className="space-y-2.5">
-              {dynamicRecommendations.map((rec) => (
-                <div
-                  key={rec.id}
-                  onClick={() => handleSelectAndInspect(rec.target)}
-                  className="p-3 bg-[#0D1320] border border-slate-800 hover:border-cyan-500/60 cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <SeverityIndicator severity={rec.severity} />
-                    <span className="font-mono text-[10.5px] text-cyan-300">
-                      {rec.actionStep}
-                    </span>
-                  </div>
-                  <h3 className="text-xs font-semibold text-white mt-1">
-                    {rec.title}
-                  </h3>
-                  <p className="text-[11.5px] text-slate-300 mt-1 leading-relaxed">
-                    {rec.detail}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-[10.5px] text-slate-400 tabular-nums mt-2 pt-1.5 border-t border-slate-800/80">
-                    <span>
-                      GEN {rec.generated_at.slice(11, 16)}Z · EXP {rec.expiry.slice(11, 16)}Z
-                    </span>
-                    <span className="text-cyan-300">
-                      CONF {Math.round(rec.confidence * 100)}% · Inspect →
-                    </span>
-                  </div>
-                </div>
-              ))}
             </div>
           </section>
         </div>
       )}
 
       {/* ==================================================
-          VIEW 2: DETAILED ENTITY TELEMETRY INSPECTOR
+          VIEW 2: CELL PREDICTION DISPLAY & ENTITY INSPECTOR
           ================================================== */}
       {panelTab === 'INSPECTOR' && (
         <div className="flex flex-col flex-1">
@@ -494,7 +530,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             </button>
           </div>
 
-          {/* 1. FLOOD-RISK CELL INSPECTION */}
+          {/* 1. FLOOD-RISK CELL PREDICTION DISPLAY */}
           {inspectedCell && (
             <div className="p-4 space-y-4 flex-1">
               <div className="border-b border-slate-800/80 pb-3">
@@ -507,30 +543,47 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       {inspectedCell.localityName}
                     </h3>
                   </div>
-                  <SeverityIndicator severity={inspectedCell.severity} />
+                  <WarningLevelIndicator level={inspectedCell.warningLevel} showDirective={false} />
                 </div>
-                <div className="mt-1 font-mono text-[11px] text-slate-400 tabular-nums">
-                  Coords: {inspectedCell.lat}°N, {inspectedCell.lng}°E · Elev: {inspectedCell.elevationM}m MSL · Slope: {inspectedCell.slopeDeg}°
+                <div className="mt-1.5 flex items-center justify-between font-mono text-[11px] text-slate-400 tabular-nums">
+                  <span>
+                    Elev {inspectedCell.elevationM}m MSL · Slope {inspectedCell.slopeDeg}°
+                  </span>
+                  <span className="text-cyan-300">{inspectedCell.warningHysteresis.actionDirective}</span>
                 </div>
               </div>
 
+              {/* Structured Cell Prediction Display (Flood probability, Severity, Data confidence, Expected onset, Rainfall) */}
               <div className="grid grid-cols-2 gap-2.5">
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">FLOOD PROBABILITY</div>
-                  <div className="text-xl font-mono font-semibold text-white tabular-nums mt-0.5">
+                  <div className="text-[11px] font-mono text-slate-400">Flood probability</div>
+                  <div className="text-2xl font-mono font-bold text-white tabular-nums mt-0.5">
                     {Math.round(inspectedCell.floodProbability * 100)}%
                     <span className="text-xs text-slate-400 font-normal ml-1.5">
                       ±{Math.round(inspectedCell.uncertaintyBand * 100)}%
                     </span>
                   </div>
                   <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Predicted Depth: <span className="text-slate-200">{inspectedCell.predictedDepthCm} cm</span>
+                    Est. Depth: <span className="text-slate-200">{inspectedCell.predictedDepthCm} cm</span>
                   </div>
                 </div>
 
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">DATA CONFIDENCE</div>
-                  <div className="text-xl font-mono font-semibold text-cyan-300 tabular-nums mt-0.5">
+                  <div className="text-[11px] font-mono text-slate-400">Severity</div>
+                  <div className="mt-1">
+                    <SeverityIndicator severity={inspectedCell.severity} />
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-400 mt-1.5">
+                    Expected onset:{' '}
+                    <span className="text-amber-300 font-semibold">
+                      {inspectedCell.expectedOnsetLabel}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
+                  <div className="text-[11px] font-mono text-slate-400">Data confidence</div>
+                  <div className="text-2xl font-mono font-bold text-cyan-300 tabular-nums mt-0.5">
                     {Math.round(inspectedCell.confidence * 100)}%
                   </div>
                   <div className="text-[11px] font-mono text-slate-400 mt-0.5">
@@ -539,73 +592,42 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 </div>
 
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">LOCAL RAINFALL</div>
+                  <div className="text-[11px] font-mono text-slate-400">Rainfall (1h / 3h)</div>
                   <div className="text-lg font-mono font-semibold text-sky-300 tabular-nums mt-0.5">
-                    {inspectedCell.rainfallMmHr} <span className="text-xs text-slate-400">mm/hr</span>
+                    {inspectedCell.predictionInput.rainfall_1h} / {inspectedCell.predictionInput.rainfall_3h}{' '}
+                    <span className="text-xs text-slate-400">mm</span>
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Cumulative: {inspectedCell.cumulativeRainfallMm} mm
-                  </div>
-                </div>
-
-                <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">DRAINAGE & IMPERVIOUS</div>
-                  <div className="text-lg font-mono font-semibold text-slate-200 tabular-nums mt-0.5">
-                    {inspectedCell.drainageProxyScore.toFixed(2)}{' '}
-                    <span className="text-xs text-slate-400">proxy</span>
-                  </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Impervious: {Math.round(inspectedCell.imperviousness * 100)}%
+                  <div className="text-[11px] font-mono text-slate-400 mt-0.5 tabular-nums">
+                    6h: {inspectedCell.predictionInput.rainfall_6h}mm · 24h: {inspectedCell.predictionInput.rainfall_24h}mm
                   </div>
                 </div>
               </div>
 
-              <div className="p-2.5 bg-[#0B121E] border border-slate-800 text-xs">
-                <div className="font-mono text-[11px] text-cyan-300 font-semibold">
-                  SPATIAL DIFFERENTIATION (SAME RAINFALL ≠ SAME RISK)
+              {/* Top 3-5 Drivers List */}
+              <div className="p-3 bg-[#0D1320] border border-slate-800/90 space-y-2">
+                <div className="flex items-center justify-between font-mono text-xs">
+                  <span className="text-slate-300 font-semibold">Top drivers</span>
+                  <span className="text-slate-500 text-[10.5px]">Weighted Model Impact</span>
                 </div>
-                <p className="text-slate-300 text-[11.5px] leading-relaxed mt-1">
-                  Under <span className="font-mono text-white">{inspectedCell.rainfallMmHr} mm/hr</span> rain,{' '}
-                  <span className="text-white font-medium">{inspectedCell.localityName}</span> ({inspectedCell.elevationM}m MSL) reaches{' '}
-                  <span className="font-mono text-white">{Math.round(inspectedCell.floodProbability * 100)}%</span> risk ({inspectedCell.predictedDepthCm} cm), whereas upland{' '}
-                  <button
-                    type="button"
-                    onClick={() => onSelectTarget({ type: 'CELL', id: highGroundReferenceCell.id })}
-                    className="text-cyan-400 underline hover:text-cyan-300"
-                  >
-                    {highGroundReferenceCell.localityName}
-                  </button>{' '}
-                  ({highGroundReferenceCell.elevationM}m MSL) experiences only{' '}
-                  <span className="font-mono text-emerald-300">
-                    {Math.round(highGroundReferenceCell.floodProbability * 100)}%
-                  </span>{' '}
-                  ({highGroundReferenceCell.predictedDepthCm} cm).
-                </p>
-              </div>
-
-              <div>
-                <div className="font-mono text-[11px] text-slate-400 mb-2">
-                  TOP HYDROLOGICAL & TERRAIN DRIVERS
-                </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {inspectedCell.topDrivers.map((d) => (
                     <div
                       key={d.factor}
-                      className="p-2.5 bg-[#0D1320] border border-slate-800/80 text-xs"
+                      className="p-2 bg-[#080C14] border border-slate-800/80 text-xs"
                     >
                       <div className="flex items-center justify-between font-mono">
-                        <span className="text-slate-200 font-medium">{d.factor}</span>
                         <span
                           className={
                             d.direction === 'aggravating'
-                              ? 'text-amber-400'
-                              : 'text-emerald-400'
+                              ? 'text-amber-300 font-semibold'
+                              : 'text-emerald-300 font-semibold'
                           }
                         >
-                          {d.direction === 'aggravating' ? '▲ Aggravating' : '▼ Mitigating'} · {d.weight}% wt
+                          {d.factor}
                         </span>
+                        <span className="text-slate-400 tabular-nums">{d.weight}% wt</span>
                       </div>
-                      <p className="text-slate-400 text-[11px] mt-1 leading-relaxed">
+                      <p className="text-slate-400 text-[11px] mt-0.5 leading-relaxed">
                         {d.description}
                       </p>
                     </div>
@@ -613,16 +635,46 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 </div>
               </div>
 
-              <div className="p-2.5 bg-[#0D1320] border border-slate-800/80 text-xs">
-                <div className="flex items-center justify-between font-mono text-[11px] text-slate-400">
-                  <span>HISTORICAL FLOOD CONTEXT (10-YR)</span>
-                  <span className="text-slate-200">{inspectedCell.historicalFloodCount10Yr} events recorded</span>
+              {/* Interactive "Why this warning?" Feature Vector & Hysteresis Inspector */}
+              <div className="p-3 bg-[#0B111D] border border-cyan-500/40 space-y-2 text-xs font-mono">
+                <div className="flex items-center justify-between text-cyan-300 font-semibold">
+                  <span>WHY THIS WARNING? ({inspectedCell.warningLevel})</span>
+                  <span className="text-[10px] text-slate-400">
+                    {defaultPredictionEngine.modelVersion}
+                  </span>
                 </div>
-                <p className="text-slate-300 text-[11.5px] mt-1 leading-relaxed">
-                  {inspectedCell.historicalContext}
+                <p className="text-[11px] text-slate-300 font-sans leading-relaxed">
+                  {WARNING_LEVEL_META[inspectedCell.warningLevel].ruleSummary}.{' '}
+                  {inspectedCell.warningHysteresis.rationale}
                 </p>
+
+                {inspectedCell.warningHysteresis.isHoldingDeescalation && (
+                  <button
+                    type="button"
+                    onClick={onStepStableTick}
+                    className="w-full py-1 px-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 text-[11px]"
+                  >
+                    Verify Stable Tick ({stableTicksElapsed}/3) to Allow De-escalation
+                  </button>
+                )}
+
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-2 border-t border-slate-800 text-[10.5px] text-slate-300 tabular-nums">
+                  <div>rainfall_1h: {inspectedCell.predictionInput.rainfall_1h} mm</div>
+                  <div>rainfall_3h: {inspectedCell.predictionInput.rainfall_3h} mm</div>
+                  <div>rainfall_6h: {inspectedCell.predictionInput.rainfall_6h} mm</div>
+                  <div>rainfall_24h: {inspectedCell.predictionInput.rainfall_24h} mm</div>
+                  <div>elevation: {inspectedCell.predictionInput.elevation} m</div>
+                  <div>slope: {inspectedCell.predictionInput.slope}°</div>
+                  <div>flow_accum: {inspectedCell.predictionInput.flow_accumulation}</div>
+                  <div>drain_proxy: {inspectedCell.predictionInput.drainage_proxy}</div>
+                  <div>impervious: {inspectedCell.predictionInput.imperviousness}</div>
+                  <div>hist_score: {inspectedCell.predictionInput.historical_flood_score}</div>
+                  <div>road_expos: {inspectedCell.predictionInput.road_exposure}</div>
+                  <div>lead_time: {inspectedCell.leadTimeMin} min</div>
+                </div>
               </div>
 
+              {/* Nearest Critical Assets & Nearest Shelter */}
               <div className="space-y-2">
                 <div className="font-mono text-[11px] text-slate-400">
                   NEAREST CRITICAL ASSETS & DESIGNATED SHELTER

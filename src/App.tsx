@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ContextInspectorPanel } from './components/ContextInspectorPanel';
 import { IndoreFloodMap, MapInspectionTarget } from './components/IndoreFloodMap';
 import { ModuleWorkspace } from './components/ModuleWorkspaces';
-import { MODE_META, SEVERITY_META } from './components/SeverityVisuals';
+import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/SeverityVisuals';
 import { PILOT_SCOPE_ID } from './data/indorePilotData';
 import { generateOperationalAlerts } from './modules/alerts';
 import { ingestSensorTelemetry, wrapInEnvelope } from './modules/dataIngestion';
@@ -20,6 +20,7 @@ import {
   ProductMode,
   ScenarioParameters,
   UserRole,
+  WarningLevel,
 } from './types/idhara';
 
 const NAV_ITEMS: Array<{ id: NavigationTab; label: string; shortBadge?: string }> = [
@@ -50,6 +51,32 @@ export default function App() {
     activeEventPresetId: 'EVT-SIM-MONSOON-SURGE',
   });
 
+  // Hysteresis state tracking across ticks
+  const previousWarningsRef = useRef<Map<string, WarningLevel>>(new Map());
+  const prevRainRef = useRef<number>(params.rainfallIntensityMmHr);
+  const [stableTicksElapsed, setStableTicksElapsed] = useState<number>(3);
+
+  const updateParamsWithHysteresis = (
+    updater: (prev: ScenarioParameters) => ScenarioParameters
+  ) => {
+    setParams((prev) => {
+      const next = updater(prev);
+      if (next.rainfallIntensityMmHr < prev.rainfallIntensityMmHr) {
+        // De-escalation requires 3 stable ticks; start at tick 1
+        setStableTicksElapsed(1);
+      } else if (next.rainfallIntensityMmHr > prev.rainfallIntensityMmHr) {
+        // Escalation happens immediately
+        setStableTicksElapsed(3);
+      }
+      prevRainRef.current = next.rainfallIntensityMmHr;
+      return next;
+    });
+  };
+
+  const handleStepStableTick = () => {
+    setStableTicksElapsed((prev) => Math.min(3, prev + 1));
+  };
+
   const [selectedTarget, setSelectedTarget] = useState<MapInspectionTarget>({
     type: 'CELL',
     id: 'CELL-R2C2', // Krishnapura Confluence hotspot
@@ -64,10 +91,21 @@ export default function App() {
   // Modular Service Pipeline Execution
   const sensors = useMemo(() => ingestSensorTelemetry(params), [params]);
 
-  const cells = useMemo(
-    () => predictFloodRiskGrid(params, sensors),
-    [params, sensors]
-  );
+  const cells = useMemo(() => {
+    const computed = predictFloodRiskGrid(
+      params,
+      sensors,
+      previousWarningsRef.current,
+      stableTicksElapsed
+    );
+    // Record peak effective warnings when stable or escalating
+    if (stableTicksElapsed >= 3) {
+      const nextMap = new Map<string, WarningLevel>();
+      computed.forEach((c) => nextMap.set(c.id, c.warningLevel));
+      previousWarningsRef.current = nextMap;
+    }
+    return computed;
+  }, [params, sensors, stableTicksElapsed]);
 
   const roads = useMemo(
     () => evaluateRoadNetworkState(cells, sensors, params),
@@ -115,21 +153,31 @@ export default function App() {
     [params.mode, dataHealthReport.confidence, params.timelineHourOffset, cells.length, roads.length]
   );
 
-  // Overall Pilot Risk Level derived from current cell predictions
-  const overallPilotRisk: FloodSeverity = useMemo(() => {
+  // Overall Pilot Risk Level & Warning Level derived from current cell predictions
+  const { overallPilotRisk, overallWarningLevel } = useMemo(() => {
     const critCount = cells.filter((c) => c.severity === FloodSeverity.CRITICAL).length;
     const highCount = cells.filter((c) => c.severity === FloodSeverity.HIGH).length;
-    if (critCount >= 4) return FloodSeverity.CRITICAL;
-    if (critCount >= 1 || highCount >= 4) return FloodSeverity.HIGH;
-    if (highCount >= 1) return FloodSeverity.MODERATE;
-    return FloodSeverity.LOW;
+    const redCount = cells.filter((c) => c.warningLevel === WarningLevel.RED).length;
+    const orangeCount = cells.filter((c) => c.warningLevel === WarningLevel.ORANGE).length;
+
+    let risk = FloodSeverity.LOW;
+    if (critCount >= 4) risk = FloodSeverity.CRITICAL;
+    else if (critCount >= 1 || highCount >= 4) risk = FloodSeverity.HIGH;
+    else if (highCount >= 1) risk = FloodSeverity.MODERATE;
+
+    let warn = WarningLevel.GREEN;
+    if (redCount >= 2) warn = WarningLevel.RED;
+    else if (redCount >= 1 || orangeCount >= 2) warn = WarningLevel.ORANGE;
+    else if (orangeCount >= 1 || highCount >= 1) warn = WarningLevel.YELLOW;
+
+    return { overallPilotRisk: risk, overallWarningLevel: warn };
   }, [cells]);
 
   // Timeline Autoplay Handler
   useEffect(() => {
     if (!isPlayingTimeline) return;
     const timer = window.setInterval(() => {
-      setParams((prev) => {
+      updateParamsWithHysteresis((prev) => {
         const nextHour = prev.timelineHourOffset >= 4 ? -3 : prev.timelineHourOffset + 1;
         return resolveTimelineStepParameters(prev, nextHour);
       });
@@ -156,6 +204,7 @@ export default function App() {
 
   const modeMeta = MODE_META[params.mode];
   const riskMeta = SEVERITY_META[overallPilotRisk];
+  const warnMeta = WARNING_LEVEL_META[overallWarningLevel];
   const activePreset = getPresetById(params.activeEventPresetId);
 
   return (
@@ -231,6 +280,15 @@ export default function App() {
             <span className="text-slate-400">Risk: </span>
             <span className={`font-semibold ${riskMeta.textColor}`}>
               {riskMeta.glyph} {overallPilotRisk}
+            </span>
+          </span>
+
+          <span className="text-slate-600" aria-hidden="true">·</span>
+
+          <span className="whitespace-nowrap">
+            <span className="text-slate-400">Warning: </span>
+            <span className={`font-bold ${warnMeta.textColor}`}>
+              {warnMeta.glyph} {overallWarningLevel}
             </span>
           </span>
 
@@ -369,7 +427,7 @@ export default function App() {
                     key={item.st}
                     type="button"
                     onClick={() =>
-                      setParams((prev) => ({
+                      updateParamsWithHysteresis((prev) => ({
                         ...prev,
                         stage: item.st,
                       }))
@@ -400,7 +458,7 @@ export default function App() {
           <ModuleWorkspace
             activeTab={activeTab}
             params={params}
-            onUpdateParams={setParams}
+            onUpdateParams={updateParamsWithHysteresis}
             cells={cells}
             roads={roads}
             sensors={sensors}
@@ -449,6 +507,8 @@ export default function App() {
           activeRoute={activeRoute}
           activeRole={activeRole}
           onNavigateTab={setActiveTab}
+          stableTicksElapsed={stableTicksElapsed}
+          onStepStableTick={handleStepStableTick}
         />
       </div>
 
@@ -480,7 +540,7 @@ export default function App() {
                   type="button"
                   onClick={() => {
                     setIsPlayingTimeline(false);
-                    setParams((prev) =>
+                    updateParamsWithHysteresis((prev) =>
                       resolveTimelineStepParameters(prev, step.hourOffset)
                     );
                   }}
@@ -528,7 +588,7 @@ export default function App() {
               value={params.rainfallIntensityMmHr}
               onChange={(e) => {
                 setIsPlayingTimeline(false);
-                setParams((p) => ({
+                updateParamsWithHysteresis((p) => ({
                   ...p,
                   mode: ProductMode.SIMULATED,
                   rainfallIntensityMmHr: Number(e.target.value),
@@ -554,7 +614,7 @@ export default function App() {
               value={params.drainageBlockagePct}
               onChange={(e) => {
                 setIsPlayingTimeline(false);
-                setParams((p) => ({
+                updateParamsWithHysteresis((p) => ({
                   ...p,
                   mode: ProductMode.SIMULATED,
                   drainageBlockagePct: Number(e.target.value),
