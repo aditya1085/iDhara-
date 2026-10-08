@@ -11,6 +11,80 @@ import {
 import { createProvenance } from './dataIngestion';
 import { getPresetById } from './historicalReplay';
 
+export type ValidationExecutionState =
+  | 'IDLE'
+  | 'STARTING_LOADING'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'STOPPED';
+
+export interface ValidationWorkflowStage {
+  id: string;
+  label: string;
+  stepNumber: number;
+  progressPct: number;
+  description: string;
+}
+
+export const VALIDATION_WORKFLOW_STAGES: ValidationWorkflowStage[] = [
+  {
+    id: 'RAINFALL',
+    label: 'Loading historical rainfall',
+    stepNumber: 1,
+    progressPct: 15,
+    description: 'Loading rainfall hyetograph profile and gauge telemetry for 5×5 km study area...',
+  },
+  {
+    id: 'TERRAIN',
+    label: 'Loading terrain',
+    stepNumber: 2,
+    progressPct: 30,
+    description: 'Loading 5m DEM elevation, slope, and catchment depressions across 64 grid cells...',
+  },
+  {
+    id: 'DRAINAGE',
+    label: 'Loading drainage/model inputs',
+    stepNumber: 3,
+    progressPct: 45,
+    description: 'Loading drainage proxies, culvert capacity, and soil permeability inputs...',
+  },
+  {
+    id: 'PREDICTION',
+    label: 'Generating prediction',
+    stepNumber: 4,
+    progressPct: 60,
+    description: 'Running iDhara hydro-terrain model for complete 5×5 km study area (all 64 cells)...',
+  },
+  {
+    id: 'OBSERVED',
+    label: 'Loading observed flood data',
+    stepNumber: 5,
+    progressPct: 75,
+    description: 'Loading observed historical flood extent and HWM survey logs for same event and area...',
+  },
+  {
+    id: 'COMPARING',
+    label: 'Comparing predicted vs observed',
+    stepNumber: 6,
+    progressPct: 88,
+    description: 'Comparing predicted flood extent with observed historical flood area across 64 cells...',
+  },
+  {
+    id: 'CALCULATING',
+    label: 'Calculating metrics',
+    stepNumber: 7,
+    progressPct: 96,
+    description: 'Calculating validation metrics (Precision, Recall, IoU, F1 score, Brier score)...',
+  },
+  {
+    id: 'COMPLETE',
+    label: 'Validation Complete',
+    stepNumber: 8,
+    progressPct: 100,
+    description: 'Validation complete: Complete 5×5 km study area validated successfully.',
+  },
+];
+
 export const MODEL_VERSIONS: Record<string, ModelVersionMetadata> = {
   'v2.3.0-baseline': {
     id: 'v2.3.0-baseline',
@@ -257,17 +331,31 @@ export function generateValidationReport(
     };
   });
 
-  // Ensure standard classification metrics are well-conditioned even at very low rain steps
+  // Compute standard classification metrics strictly from TP, FP, FN, TN counts
+  const totalPredicted = tp + fp;
+  const totalObserved = tp + fn;
+  const totalUnion = tp + fp + fn;
+
   const precision =
-    tp + fp > 0 ? Number((tp / (tp + fp)).toFixed(2)) : 0.88;
+    totalPredicted > 0
+      ? Number((tp / totalPredicted).toFixed(2))
+      : totalObserved === 0
+      ? 1.0
+      : 0.0;
   const recall =
-    tp + fn > 0 ? Number((tp / (tp + fn)).toFixed(2)) : 0.84;
+    totalObserved > 0
+      ? Number((tp / totalObserved).toFixed(2))
+      : totalPredicted === 0
+      ? 1.0
+      : 0.0;
   const f1Score =
     precision + recall > 0
       ? Number(((2 * precision * recall) / (precision + recall)).toFixed(2))
-      : 0.86;
+      : precision === 1.0 && recall === 1.0
+      ? 1.0
+      : 0.0;
   const iouScore =
-    tp + fp + fn > 0 ? Number((tp / (tp + fp + fn)).toFixed(2)) : 0.78;
+    totalUnion > 0 ? Number((tp / totalUnion).toFixed(2)) : 1.0;
   const prAuc = Number(
     Math.min(0.98, Math.max(0.76, f1Score * 0.96 + 0.06)).toFixed(2)
   );

@@ -191,4 +191,17 @@ for (const shelter of severedData.shelters) {
 }
 console.log('Test 5 (No NaN/Undefined/Null in Critical Metrics): PASSED');
 
+// TEST 6: Validation module 5x5 km complete study-area coverage and metrics integrity
+const valReport = baseline.validationReport;
+console.assert(valReport.records.length === 64, `Validation records must evaluate all 64 cells, got ${valReport.records.length}`);
+console.assert(Number.isFinite(valReport.precision) && valReport.precision >= 0 && valReport.precision <= 1, 'Precision must be in [0, 1]');
+console.assert(Number.isFinite(valReport.recall) && valReport.recall >= 0 && valReport.recall <= 1, 'Recall must be in [0, 1]');
+console.assert(Number.isFinite(valReport.iouScore) && valReport.iouScore >= 0 && valReport.iouScore <= 1, 'IoU must be in [0, 1]');
+console.assert(Number.isFinite(valReport.f1Score) && valReport.f1Score >= 0 && valReport.f1Score <= 1, 'F1 score must be in [0, 1]');
+console.assert(Number.isFinite(valReport.brierScore) && valReport.brierScore >= 0, 'Brier score must be non-negative');
+
+const totalClassified = valReport.truePositivesCount + valReport.falseNegativesCount + valReport.falsePositivesCount + valReport.trueNegativesCount;
+console.assert(totalClassified === 64, `Sum of TP (${valReport.truePositivesCount}) + FN (${valReport.falseNegativesCount}) + FP (${valReport.falsePositivesCount}) + TN (${valReport.trueNegativesCount}) must equal 64 cells`);
+console.log(`Test 6 (Validation Complete 5x5 km Evaluation): PASSED — 64 cells evaluated (TP:${valReport.truePositivesCount}, FN:${valReport.falseNegativesCount}, FP:${valReport.falsePositivesCount}, TN:${valReport.trueNegativesCount}, Precision:${valReport.precision}, Recall:${valReport.recall}, IoU:${valReport.iouScore})`);
+
 console.log('=== ALL STATE PROPAGATION & DATA CONSISTENCY TESTS PASSED SUCCESSFULLY ===');

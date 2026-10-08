@@ -1118,12 +1118,22 @@ export default function App() {
 
   // Timeline Autoplay Handler (Supports 1x / 2x / 5x speed)
   useEffect(() => {
+    if (activeTab !== 'event-replay' && isPlayingTimeline) {
+      setIsPlayingTimeline(false);
+    }
+  }, [activeTab, isPlayingTimeline]);
+
+  useEffect(() => {
     if (!isPlayingTimeline) return;
     const intervalMs = Math.max(440, Math.round(2200 / replaySpeed));
     const timer = window.setInterval(() => {
       updateParamsWithHysteresis((prev) => {
-        const nextHour =
-          prev.timelineHourOffset >= 4 ? -3 : prev.timelineHourOffset + 1;
+        if (prev.timelineHourOffset >= 4) {
+          // Reached end of event timeline: stop playback rather than looping infinitely
+          setIsPlayingTimeline(false);
+          return prev;
+        }
+        const nextHour = prev.timelineHourOffset + 1;
         return resolveTimelineStepParameters(prev, nextHour);
       });
     }, intervalMs);

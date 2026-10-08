@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { PILOT_BOUNDS, PILOT_SCOPE_ID } from '../data/indorePilotData';
 import { getEventPresets } from '../modules/historicalReplay';
-import { MODEL_VERSIONS } from '../modules/validation';
+import {
+  MODEL_VERSIONS,
+  VALIDATION_WORKFLOW_STAGES,
+  ValidationExecutionState,
+} from '../modules/validation';
 import {
   DISASTER_STAGE_INFO,
   DisasterStage,
@@ -63,6 +68,105 @@ export const PostDisasterLearningWorkspace: React.FC<
   const activePreset =
     presets.find((p) => p.id === params.activeEventPresetId) ?? presets[0];
 
+  // Validation State Machine (Finite Lifecycle: IDLE -> STARTING_LOADING -> RUNNING -> COMPLETED; allow STOPPED and restart)
+  const [validationState, setValidationState] =
+    useState<ValidationExecutionState>('IDLE');
+  const [validationStageIndex, setValidationStageIndex] = useState<number>(0);
+  const [validationProgressPct, setValidationProgressPct] = useState<number>(0);
+
+  const activeRunIdRef = useRef<number>(0);
+  const validationTimerRef = useRef<number | null>(null);
+
+  // Clean up all timers on unmount
+  useEffect(() => {
+    return () => {
+      if (validationTimerRef.current !== null) {
+        window.clearTimeout(validationTimerRef.current);
+        validationTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Clean up timers and stop validation if user leaves the validation tab
+  useEffect(() => {
+    if (activeTab !== 'validation') {
+      if (validationTimerRef.current !== null) {
+        window.clearTimeout(validationTimerRef.current);
+        validationTimerRef.current = null;
+      }
+      activeRunIdRef.current += 1;
+      if (validationState === 'RUNNING' || validationState === 'STARTING_LOADING') {
+        setValidationState('STOPPED');
+      }
+    }
+  }, [activeTab]);
+
+  const handleStartValidation = () => {
+    // PREVENT DUPLICATE RUNS: If already running, do nothing
+    if (validationState === 'RUNNING' || validationState === 'STARTING_LOADING') {
+      return;
+    }
+
+    if (validationTimerRef.current !== null) {
+      window.clearTimeout(validationTimerRef.current);
+      validationTimerRef.current = null;
+    }
+
+    const runId = ++activeRunIdRef.current;
+    setValidationState('STARTING_LOADING');
+    setValidationStageIndex(0);
+    setValidationProgressPct(VALIDATION_WORKFLOW_STAGES[0].progressPct);
+
+    // Finite sequential execution delays per stage
+    const stageDelays = [380, 380, 400, 450, 400, 420, 380, 350];
+
+    const runStage = (stageIdx: number) => {
+      // If cancelled or superseded by another run, abort
+      if (activeRunIdRef.current !== runId) return;
+
+      if (stageIdx >= VALIDATION_WORKFLOW_STAGES.length - 1) {
+        // Complete the validation process
+        setValidationStageIndex(VALIDATION_WORKFLOW_STAGES.length - 1);
+        setValidationProgressPct(100);
+        setValidationState('COMPLETED');
+        validationTimerRef.current = null;
+        return;
+      }
+
+      setValidationState('RUNNING');
+      setValidationStageIndex(stageIdx);
+      setValidationProgressPct(VALIDATION_WORKFLOW_STAGES[stageIdx].progressPct);
+
+      validationTimerRef.current = window.setTimeout(() => {
+        runStage(stageIdx + 1);
+      }, stageDelays[stageIdx] ?? 400);
+    };
+
+    validationTimerRef.current = window.setTimeout(() => {
+      runStage(1);
+    }, stageDelays[0]);
+  };
+
+  const handleStopValidation = () => {
+    activeRunIdRef.current += 1;
+    if (validationTimerRef.current !== null) {
+      window.clearTimeout(validationTimerRef.current);
+      validationTimerRef.current = null;
+    }
+    setValidationState('STOPPED');
+  };
+
+  const handleResetValidation = () => {
+    activeRunIdRef.current += 1;
+    if (validationTimerRef.current !== null) {
+      window.clearTimeout(validationTimerRef.current);
+      validationTimerRef.current = null;
+    }
+    setValidationState('IDLE');
+    setValidationStageIndex(0);
+    setValidationProgressPct(0);
+  };
+
   // PREDICTED VS OBSERVED comparison view mode
   const [comparisonView, setComparisonView] = useState<
     'MAP_VIEW' | 'TIMELINE_VIEW' | 'METRICS_VIEW'
@@ -99,30 +203,323 @@ export const PostDisasterLearningWorkspace: React.FC<
          ===================================================================== */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div>
-          <div className="flex items-center gap-2 font-mono text-[11px]">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px]">
             <span className="text-cyan-400 font-bold">
               {activeTab === 'event-replay'
                 ? `EVENT REPLAY — STAGE ${DISASTER_STAGE_INFO[params.stage]?.num ?? 4}: ${DISASTER_STAGE_INFO[params.stage]?.shortLabel.toUpperCase() ?? 'POST-DISASTER LEARN'}`
-                : `VALIDATION — STAGE ${DISASTER_STAGE_INFO[params.stage]?.num ?? 4}: ${DISASTER_STAGE_INFO[params.stage]?.shortLabel.toUpperCase() ?? 'POST-DISASTER LEARN'}`}
+                : `VALIDATION — COMPLETE 5×5 KM STUDY AREA`}
             </span>
             <span className="text-slate-600">·</span>
-            <span className="text-emerald-300 font-semibold">
-              “iDhara does not stop after predicting a flood. It learns from what actually happened.”
-            </span>
+            {activeTab === 'validation' ? (
+              <span className="px-2 py-0.5 bg-amber-500/20 border border-amber-400/80 text-amber-300 font-semibold text-[10.5px]">
+                DEMO / MOCK VALIDATION (PROTOTYPE BENCHMARK)
+              </span>
+            ) : (
+              <span className="text-emerald-300 font-semibold">
+                “iDhara does not stop after predicting a flood. It learns from what actually happened.”
+              </span>
+            )}
           </div>
           <h2 className="text-base font-semibold text-white mt-0.5">
             {validationReport.eventTitle}
           </h2>
+          {activeTab === 'validation' && (
+            <div className="font-mono text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-2">
+              <span className="text-cyan-300 font-semibold">Study Boundary:</span>
+              <span>Complete 5×5 km Study Area ({PILOT_BOUNDS.widthKm}×{PILOT_BOUNDS.heightKm} km · 64 grid cells · 25.0 km² · Boundary ID: {PILOT_SCOPE_ID})</span>
+              <span className="text-slate-600">·</span>
+              <span className="text-slate-400">All 64 cells evaluated simultaneously (independent of locality selection)</span>
+            </div>
+          )}
         </div>
 
         <ProvenanceStrip provenance={validationReport} compact />
       </div>
 
       {/* =====================================================================
-          1. EVENT REPLAY SELECTOR & TRANSPORT CONTROLS
+          1A. FINITE VALIDATION WORKFLOW CONTROLLER (activeTab === 'validation')
+         ===================================================================== */}
+      {activeTab === 'validation' && (
+        <div className="p-3 bg-[#0C121E] border border-slate-800 space-y-3 font-mono">
+          {/* Top Bar: Title, State Badge, Action Buttons */}
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+            <div>
+              <div className="text-xs text-amber-300 font-bold">
+                FINITE VALIDATION PROCESS — COMPLETE 5×5 KM STUDY AREA
+              </div>
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                {validationState === 'IDLE' && (
+                  <span className="px-2 py-0.5 bg-slate-800 border border-slate-700 text-slate-300 text-[10.5px] font-semibold">
+                    ● IDLE — READY TO VALIDATE
+                  </span>
+                )}
+                {validationState === 'STARTING_LOADING' && (
+                  <span className="px-2 py-0.5 bg-sky-950/80 border border-sky-400 text-sky-200 text-[10.5px] font-bold animate-pulse">
+                    ⚙ STARTING / LOADING INPUTS...
+                  </span>
+                )}
+                {validationState === 'RUNNING' && (
+                  <span className="px-2 py-0.5 bg-cyan-950/80 border border-cyan-400 text-cyan-200 text-[10.5px] font-bold animate-pulse">
+                    ▶ RUNNING — STAGE {validationStageIndex + 1}/8: {VALIDATION_WORKFLOW_STAGES[validationStageIndex].label.toUpperCase()}
+                  </span>
+                )}
+                {validationState === 'COMPLETED' && (
+                  <span className="px-2 py-0.5 bg-emerald-950/80 border border-emerald-400 text-emerald-200 text-[10.5px] font-bold">
+                    ✓ VALIDATION COMPLETED (100%)
+                  </span>
+                )}
+                {validationState === 'STOPPED' && (
+                  <span className="px-2 py-0.5 bg-rose-950/80 border border-rose-400 text-rose-200 text-[10.5px] font-bold">
+                    ⏹ STOPPED AT STAGE {validationStageIndex + 1}/8
+                  </span>
+                )}
+                <span className="px-1.5 py-0.5 bg-[#070B12] border border-slate-800 text-slate-400 text-[10px]">
+                  Boundary: 5×5 km (64 Cells)
+                </span>
+                <span className="px-1.5 py-0.5 bg-[#070B12] border border-slate-800 text-amber-300/90 text-[10px]">
+                  Demo Validation
+                </span>
+              </div>
+            </div>
+
+            {/* Workflow Control Buttons */}
+            <div className="flex items-center gap-2">
+              {validationState === 'IDLE' && (
+                <button
+                  type="button"
+                  onClick={handleStartValidation}
+                  className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs border border-cyan-400 flex items-center gap-1.5 transition-colors cursor-pointer shadow-[0_0_10px_rgba(6,182,212,0.3)]"
+                >
+                  ▶ Start Validation
+                </button>
+              )}
+              {(validationState === 'STARTING_LOADING' || validationState === 'RUNNING') && (
+                <button
+                  type="button"
+                  onClick={handleStopValidation}
+                  className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs border border-rose-400 flex items-center gap-1.5 transition-colors cursor-pointer shadow-[0_0_10px_rgba(244,63,94,0.3)]"
+                >
+                  ⏹ Stop Validation
+                </button>
+              )}
+              {validationState === 'COMPLETED' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleStartValidation}
+                    className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs border border-cyan-400 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    ↻ Start Again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetValidation}
+                    className="px-2.5 py-1 bg-[#070B12] hover:bg-slate-800 text-slate-300 text-xs border border-slate-700 transition-colors cursor-pointer"
+                  >
+                    ↺ Reset to Idle
+                  </button>
+                </div>
+              )}
+              {validationState === 'STOPPED' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleStartValidation}
+                    className="px-3 py-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs border border-cyan-400 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    ▶ Start Again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleResetValidation}
+                    className="px-2.5 py-1 bg-[#070B12] hover:bg-slate-800 text-slate-300 text-xs border border-slate-700 transition-colors cursor-pointer"
+                  >
+                    ↺ Reset to Idle
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 1. SELECT HISTORICAL FLOOD EVENT */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] text-slate-300">
+              <span className="font-bold text-cyan-300">1. HISTORICAL FLOOD EVENT SELECTION</span>
+              <span className="text-[10px] text-slate-500">
+                {validationState === 'RUNNING' || validationState === 'STARTING_LOADING'
+                  ? 'Locked during active validation run'
+                  : 'Select past event to evaluate against'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2.5">
+              {presets.map((preset) => {
+                const isSelected = preset.id === params.activeEventPresetId;
+                const isLocked =
+                  validationState === 'RUNNING' ||
+                  validationState === 'STARTING_LOADING';
+                return (
+                  <div
+                    key={preset.id}
+                    onClick={() => {
+                      if (isLocked) return;
+                      onUpdateParams((prev) => ({
+                        ...prev,
+                        activeEventPresetId: preset.id,
+                        mode: preset.mode,
+                        rainfallIntensityMmHr: preset.peakRainfallMmHr,
+                        drainageBlockagePct: preset.drainageBlockagePct,
+                        upstreamKahnInflowMultiplier: preset.upstreamMultiplier,
+                        timelineHourOffset: 0,
+                      }));
+                      if (validationState === 'COMPLETED' || validationState === 'STOPPED') {
+                        setValidationState('IDLE');
+                        setValidationStageIndex(0);
+                        setValidationProgressPct(0);
+                      }
+                    }}
+                    className={`p-2.5 border transition-colors ${
+                      isLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                    } ${
+                      isSelected
+                        ? 'bg-amber-950/30 border-amber-400'
+                        : 'bg-[#070B12] border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[10.5px]">
+                      <span className="text-amber-300 font-bold">
+                        {preset.mode} EVENT
+                      </span>
+                      <span className="text-sky-300 tabular-nums font-semibold">
+                        Peak {preset.peakRainfallMmHr} mm/h · {preset.cumulativeMm} mm
+                      </span>
+                    </div>
+                    <div className="text-xs font-semibold text-white mt-1 line-clamp-1 font-sans">
+                      {preset.title}
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-2">
+                      {preset.summary}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2-8. FINITE PROGRESS BAR & STAGE STEPPER */}
+          <div className="p-2.5 bg-[#070B12] border border-slate-800/90 space-y-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-300">
+                WORKFLOW PROGRESS: <strong className="text-cyan-300">{validationProgressPct}%</strong>
+                {validationState !== 'IDLE' && (
+                  <span className="ml-2 text-slate-400 font-normal">
+                    — Stage {validationStageIndex + 1} of 8: <span className="text-white font-semibold">{VALIDATION_WORKFLOW_STAGES[validationStageIndex].label}</span>
+                  </span>
+                )}
+              </span>
+              <span className="text-slate-500 text-[10px]">
+                {validationState === 'IDLE'
+                  ? 'Click "Start Validation" to begin finite run'
+                  : validationState === 'COMPLETED'
+                  ? 'Run completed successfully · Timers stopped'
+                  : validationState === 'STOPPED'
+                  ? 'Run stopped by operator'
+                  : 'Finite sequential execution'}
+              </span>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full h-2 bg-slate-950 border border-slate-800 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-300 ${
+                  validationState === 'COMPLETED'
+                    ? 'bg-emerald-400'
+                    : validationState === 'STOPPED'
+                    ? 'bg-rose-500'
+                    : 'bg-gradient-to-r from-sky-500 to-cyan-400'
+                }`}
+                style={{ width: `${validationProgressPct}%` }}
+              />
+            </div>
+
+            {/* Stepper Grid (8 Stages) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-1 pt-1 text-[10px]">
+              {VALIDATION_WORKFLOW_STAGES.map((stg, sIdx) => {
+                const isCurrent =
+                  validationState !== 'IDLE' && validationStageIndex === sIdx;
+                const isDone =
+                  validationState === 'COMPLETED' ||
+                  (validationState !== 'IDLE' && validationStageIndex > sIdx);
+                return (
+                  <div
+                    key={stg.id}
+                    className={`p-1.5 border transition-colors ${
+                      isCurrent
+                        ? 'bg-cyan-950/80 border-cyan-400 text-cyan-200 font-bold'
+                        : isDone
+                        ? 'bg-emerald-950/40 border-emerald-500/60 text-emerald-300'
+                        : 'bg-[#0A0E18] border-slate-800/80 text-slate-500'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[9px]">
+                      <span>STEP {stg.stepNumber}</span>
+                      <span>{isDone ? '✓' : isCurrent ? '▶' : '·'}</span>
+                    </div>
+                    <div className="truncate font-semibold mt-0.5">
+                      {stg.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Stage Description & Status Callout */}
+            <div className="p-2 bg-[#0C121E] border border-slate-800 text-[11px] flex flex-wrap items-center justify-between gap-2">
+              <div className="text-slate-300">
+                <span className="text-slate-500 font-semibold mr-1">Current Action:</span>
+                {validationState === 'IDLE'
+                  ? 'Ready to execute validation across complete 5×5 km study area (64 cells). Click "Start Validation" above.'
+                  : VALIDATION_WORKFLOW_STAGES[validationStageIndex].description}
+              </div>
+              <div className="text-[10.5px] text-slate-400 font-sans">
+                {validationState === 'COMPLETED' ? (
+                  <span className="text-emerald-300 font-mono font-semibold">
+                    ✓ Complete 5×5 km Study Area Validated.
+                  </span>
+                ) : validationState === 'STOPPED' ? (
+                  <span className="text-rose-300 font-mono font-semibold">
+                    ⏹ Stopped at Step {validationStageIndex + 1}.
+                  </span>
+                ) : validationState === 'RUNNING' || validationState === 'STARTING_LOADING' ? (
+                  <span className="text-cyan-300 font-mono">
+                    Evaluating 64 grid cells...
+                  </span>
+                ) : (
+                  <span className="text-slate-500">
+                    64 Cells · 5×5 km Pilot Grid
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Validation Boundary & Integrity Declaration */}
+          <div className="p-2 bg-[#070B12] border border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[10.5px] text-slate-400">
+            <div>
+              <strong className="text-cyan-300">Boundary Guarantee:</strong> The validation process validates the model over the COMPLETE existing 5×5 km study area (all 64 grid cells · 25 km²). It does NOT validate only a selected locality.
+            </div>
+            <div>
+              <strong className="text-amber-300">Data Integrity:</strong> Demo Validation evaluated using existing hydro-terrain inputs & synthetic HWM observations without fabricated accuracy claims.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          1B. EVENT REPLAY SELECTOR & TRANSPORT CONTROLS
           (Play / Pause / Step backward / Step forward / Speed 1x · 2x · 5x)
          ===================================================================== */}
-      <div className="p-3 bg-[#0C121E] border border-slate-800 space-y-3">
+      {activeTab === 'event-replay' && (
+        <div className="p-3 bg-[#0C121E] border border-slate-800 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="font-mono text-xs text-amber-300 font-bold">
             SYNTHETIC HISTORICAL & MONSOON EVENT REPLAY ARCHIVE
@@ -358,6 +755,7 @@ export const PostDisasterLearningWorkspace: React.FC<
           </div>
         </div>
       </div>
+      )}
 
       {/* =====================================================================
           2. METRICS BAR + VISUALLY PROMINENT FALSE NEGATIVES BANNER
