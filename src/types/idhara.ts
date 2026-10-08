@@ -96,6 +96,12 @@ export enum RoadStatus {
   CLOSED_INUNDATED = 'CLOSED',
 }
 
+export type TravelProfile =
+  | 'CITIZEN'
+  | 'PEDESTRIAN'
+  | 'EMERGENCY_RESPONDER'
+  | 'AMBULANCE';
+
 export type SensorFreshnessState = 'FRESH' | 'STALE' | 'SUSPECT' | 'MISSING';
 
 export type ObservationInjectionType =
@@ -233,7 +239,9 @@ export interface RoadSegmentState extends BaseRoadSegment, DataProvenance {
   agreeingObservationsCount: number;
   floodProbability: number;
   estimatedWaterDepthCm: number;
+  riskPenaltyMin: number; // explicit routing risk penalty in minutes
   effectiveTravelTimeMin: number; // Infinity if CLOSED
+  expiry: string; // ISO timestamp for road state validity
   evidence: string[];
   lastUpdate: string;
   routeImpact: string;
@@ -287,10 +295,20 @@ export interface Shelter extends DataProvenance {
   lat: number;
   lng: number;
   cellId: string;
+  nearestNodeId: string;
+  locationLabel: string;
   elevationM: number;
   totalCapacity: number;
+  baseOccupancy: number;
+  assignedEvacuees: number;
   currentOccupancy: number;
-  status: 'READY_OPEN' | 'FILLING' | 'NEAR_CAPACITY' | 'STANDBY';
+  remainingCapacity: number;
+  floodRiskProbability: number;
+  floodRiskSeverity: FloodSeverity;
+  reachable: boolean;
+  accessibilityStatus: 'REACHABLE' | 'UNREACHABLE_ROAD_CLOSED' | 'UNREACHABLE_FLOOD_RISK';
+  accessibilityLabel: string;
+  status: 'READY_OPEN' | 'FILLING' | 'NEAR_CAPACITY' | 'FULL' | 'UNREACHABLE' | 'STANDBY';
   medicalTeamPresent: boolean;
   drinkingWaterLiters: number;
   assignedSourceCellIds: string[];
@@ -308,15 +326,78 @@ export interface DrainageProxyFeature {
   notes: string;
 }
 
+export interface ComputedPathDetail {
+  label: string;
+  nodeIds: string[];
+  roadIds: string[];
+  roadNames: string[];
+  distanceKm: number;
+  travelTimeMin: number;
+  baseTravelTimeMin: number;
+  totalRiskPenaltyMin: number;
+  riskScore: number; // 0 to 100 composite risk score
+  maxFloodProbability: number;
+  confidence: number; // 0.0 to 1.0
+  generated_at: string;
+  expiry: string;
+  statusBanner: 'Recommended under current data';
+}
+
+export interface NoFeasibleRouteInfo {
+  reason: string;
+  blockingRoadIds: string[];
+  blockingRoadNames: string[];
+  nearestReachableSafePoint: {
+    nodeId: string;
+    nodeName: string;
+    elevationM: number;
+    distanceKm: number;
+    travelTimeMin: number;
+    pathRoadIds: string[];
+  } | null;
+  nearestAvailableShelter: {
+    shelterId: string;
+    shelterName: string;
+    ward: string;
+    elevationM: number;
+    availableBerths: number;
+    distanceKm: number;
+    reachable: boolean;
+  } | null;
+}
+
+export interface RouteUpdateNotification {
+  id: string;
+  timestamp: string;
+  bannerTitle: 'ROUTE UPDATED' | 'DEMO INCIDENT — ROUTE RECALCULATED' | 'NO FEASIBLE ROUTE';
+  reason: string;
+  affectedRoadId: string;
+  affectedRoadName: string;
+  newRoadState: RoadStatus;
+  previousRouteRoadIds: string[];
+  previousRouteSummary: string;
+  previousEtaMin: number;
+  newRouteRoadIds: string[];
+  newRouteSummary: string;
+  newEtaMin: number | null;
+  explanation: string;
+}
+
 export interface RouteRecommendation extends DataProvenance {
   id: string;
   originNodeId: string;
   originName: string;
   destinationNodeId: string;
   destinationName: string;
+  travelProfile: TravelProfile;
   purpose: 'EMERGENCY_AMBULANCE' | 'EVACUATION_BUS' | 'MUNICIPAL_RESPONSE' | 'CITIZEN_TRANSIT';
   expiry: string;
   recommendationStatusLabel: 'Recommended under current data' | 'High-caution corridor under current data';
+  feasible: boolean;
+  primaryRoute: ComputedPathDetail | null;
+  alternativeRoute: ComputedPathDetail | null;
+  riskScore: number; // 0 to 100
+  noRouteInfo?: NoFeasibleRouteInfo;
   recommendedPathNodeIds: string[];
   recommendedRoadIds: string[];
   recommendedDistanceKm: number;
@@ -329,20 +410,62 @@ export interface RouteRecommendation extends DataProvenance {
   safetyAdvisory: string;
 }
 
+export type EvacuationFailureReason =
+  | 'No reachable shelter'
+  | 'Shelter capacity exceeded'
+  | 'Road network disconnected';
+
+export interface EvacuationZoneCriticalFacility {
+  id: string;
+  name: string;
+  category: CriticalAsset['category'];
+  priorityLabel: 'Hospital' | 'School / Care Facility' | 'Critical Infrastructure';
+}
+
+export interface EvacuationNearestShelterOption {
+  shelterId: string;
+  shelterName: string;
+  distanceKm: number;
+  travelTimeMin: number | null;
+  reachable: boolean;
+  remainingCapacityBefore: number;
+}
+
 export interface EvacuationPlanItem extends DataProvenance {
   id: string;
   sourceCellId: string;
   sourceLocality: string;
+  wardCode: string;
+  floodProbability: number;
+  predictedDepthCm: number;
   populationAtRisk: number;
   priorityScore: number;
+  priorityTier: 'PRIORITY_1_HOSPITAL' | 'PRIORITY_2_SCHOOL_CARE' | 'PRIORITY_3_VULNERABLE_ZONE';
+  priorityReason: string;
+  criticalFacilities: EvacuationZoneCriticalFacility[];
+  nearestShelters: EvacuationNearestShelterOption[];
+  roadAccessibilityStatus: 'ACCESSIBLE' | 'RESTRICTED_HIGH_RISK' | 'DISCONNECTED';
+  roadAccessibilityLabel: string;
+  originNodeId: string;
+  originNodeName: string;
   severity: FloodSeverity;
+  assigned: boolean;
+  assignmentSummary: string;
   targetShelterId: string;
   targetShelterName: string;
   recommendedRouteId: string;
+  routeRoadIds: string[];
+  routeRoadNames: string[];
+  routeNodeIds: string[];
+  routeLabel: 'Recommended evacuation route under current data';
+  routeRiskScore: number;
   distanceKm: number;
   estimatedClearanceMin: number;
   busesAssigned: number;
-  status: 'EVACUATING' | 'STAGED' | 'ADVISORY_ISSUED' | 'STANDBY';
+  status: 'EVACUATING' | 'STAGED' | 'ADVISORY_ISSUED' | 'UNASSIGNED_FAILURE' | 'STANDBY';
+  failureBanner?: 'NO FEASIBLE EVACUATION PLAN';
+  failureReason?: EvacuationFailureReason;
+  failureDetail?: string;
   expiry: string;
 }
 

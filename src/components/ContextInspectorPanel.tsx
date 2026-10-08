@@ -13,6 +13,7 @@ import {
   RoadSegmentState,
   RoadStatus,
   RouteRecommendation,
+  RouteUpdateNotification,
   ScenarioParameters,
   SensorNode,
   Shelter,
@@ -41,6 +42,8 @@ interface ContextInspectorPanelProps {
   alerts: AlertItem[];
   params: ScenarioParameters;
   activeRoute: RouteRecommendation | null;
+  routeUpdateNotification?: RouteUpdateNotification | null;
+  onTriggerDemoIncident?: () => void;
   activeRole: UserRole;
   onNavigateTab: (tab: NavigationTab) => void;
   stableTicksElapsed: number;
@@ -61,6 +64,8 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
   alerts,
   params,
   activeRoute,
+  routeUpdateNotification,
+  onTriggerDemoIncident,
   activeRole,
   onNavigateTab,
   stableTicksElapsed,
@@ -1015,36 +1020,96 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             <div className="p-4 space-y-4 flex-1">
               <div className="border-b border-slate-800/80 pb-3">
                 <div className="font-mono text-xs text-slate-400">
-                  {inspectedShelter.id} · Ward {inspectedShelter.ward} · Elev {inspectedShelter.elevationM}m MSL
+                  {inspectedShelter.id} · {inspectedShelter.locationLabel}
                 </div>
                 <h3 className="text-base font-semibold text-white mt-0.5">
                   {inspectedShelter.name}
                 </h3>
-                <div className="mt-1 font-mono text-xs text-emerald-300">
-                  Status: {inspectedShelter.status} · Medical Team: {inspectedShelter.medicalTeamPresent ? 'On-Site' : 'Standby'}
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
+                  <span
+                    className={
+                      inspectedShelter.reachable
+                        ? 'text-emerald-300 font-semibold'
+                        : 'text-rose-400 font-bold'
+                    }
+                  >
+                    {inspectedShelter.reachable ? '● ' : '✖ '}
+                    {inspectedShelter.accessibilityLabel}
+                  </span>
+                  <span className="text-cyan-300">Status: {inspectedShelter.status}</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">OCCUPANCY</div>
-                  <div className="text-xl font-mono font-semibold text-white tabular-nums mt-0.5">
-                    {inspectedShelter.currentOccupancy} / {inspectedShelter.totalCapacity}
+                  <div className="text-[10.5px] font-mono text-slate-400">CAPACITY</div>
+                  <div className="text-lg font-mono font-bold text-white tabular-nums mt-0.5">
+                    {inspectedShelter.totalCapacity}
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Available Berths: {inspectedShelter.totalCapacity - inspectedShelter.currentOccupancy}
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    Base: {inspectedShelter.baseOccupancy}
                   </div>
                 </div>
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">WATER RESERVE</div>
-                  <div className="text-xl font-mono font-semibold text-cyan-300 tabular-nums mt-0.5">
-                    {(inspectedShelter.drinkingWaterLiters / 1000).toFixed(1)}k L
+                  <div className="text-[10.5px] font-mono text-slate-400">EST. OCCUPANCY</div>
+                  <div className="text-lg font-mono font-bold text-amber-300 tabular-nums mt-0.5">
+                    {inspectedShelter.currentOccupancy}
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Access Corridor: {inspectedShelter.accessRoadId}
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    +{inspectedShelter.assignedEvacuees} evacuees
+                  </div>
+                </div>
+                <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
+                  <div className="text-[10.5px] font-mono text-slate-400">REMAINING CAP</div>
+                  <div
+                    className={`text-lg font-mono font-bold tabular-nums mt-0.5 ${
+                      inspectedShelter.remainingCapacity > 0
+                        ? 'text-emerald-300'
+                        : 'text-rose-400'
+                    }`}
+                  >
+                    {inspectedShelter.remainingCapacity}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    Available berths
                   </div>
                 </div>
               </div>
+
+              <div className="p-3 bg-[#0D1320] border border-slate-800/90 text-xs space-y-1.5 font-mono">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Shelter Flood Risk:</span>
+                  <span className="text-slate-200">
+                    {Math.round(inspectedShelter.floodRiskProbability * 100)}% (
+                    {inspectedShelter.floodRiskSeverity})
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Accessibility:</span>
+                  <span
+                    className={
+                      inspectedShelter.reachable ? 'text-emerald-300' : 'text-rose-400'
+                    }
+                  >
+                    {inspectedShelter.accessibilityLabel}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-400">Water & Medical:</span>
+                  <span className="text-cyan-300">
+                    {(inspectedShelter.drinkingWaterLiters / 1000).toFixed(1)}k L ·{' '}
+                    {inspectedShelter.medicalTeamPresent ? 'Medical Team On-Site' : 'Standby'}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onNavigateTab('evacuation')}
+                className="w-full py-2 px-3 bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-500/50 text-emerald-200 font-mono text-xs whitespace-nowrap"
+              >
+                Open Evacuation Planning Dashboard →
+              </button>
 
               <ProvenanceStrip provenance={inspectedShelter} />
             </div>
@@ -1088,19 +1153,61 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
 
       {/* Pinned Active Route Recommendation Summary ("Recommended under current data") */}
       {activeRoute && (
-        <div className="p-3.5 bg-[#070B12] border-t border-slate-800/90 text-xs shrink-0">
+        <div className="p-3.5 bg-[#070B12] border-t border-slate-800/90 text-xs shrink-0 space-y-1.5">
+          {routeUpdateNotification && (
+            <div className="px-2 py-1 bg-amber-950/80 border border-amber-400/70 font-mono text-[10.5px] text-amber-200 flex items-center justify-between gap-2">
+              <span className="truncate">
+                <strong>ROUTE UPDATED:</strong> “{routeUpdateNotification.reason}”
+              </span>
+              <button
+                type="button"
+                onClick={() => onNavigateTab('roads-routing')}
+                className="text-cyan-300 underline shrink-0"
+              >
+                Details →
+              </button>
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-2 font-mono text-[11px]">
-            <span className="text-cyan-300 font-semibold">
-              CORRIDOR: {activeRoute.recommendationStatusLabel.toUpperCase()}
+            <span
+              className={
+                activeRoute.feasible
+                  ? 'text-cyan-300 font-semibold'
+                  : 'text-rose-400 font-bold'
+              }
+            >
+              {activeRoute.feasible
+                ? `● ${activeRoute.recommendationStatusLabel}`
+                : '✖ NO FEASIBLE ROUTE'}
             </span>
-            <span className="text-slate-400 tabular-nums">
-              ETA {activeRoute.recommendedEtaMin}m ({activeRoute.recommendedDistanceKm} km)
-            </span>
+            {activeRoute.feasible ? (
+              <span className="text-slate-300 tabular-nums">
+                {activeRoute.recommendedEtaMin} min · Risk {activeRoute.riskScore}/100
+              </span>
+            ) : (
+              <span className="text-emerald-300 text-[10.5px]">
+                Safe pt: {activeRoute.noRouteInfo?.nearestReachableSafePoint?.nodeName}
+              </span>
+            )}
           </div>
-          <div className="text-slate-200 font-medium mt-1">
-            {activeRoute.originName} → {activeRoute.destinationName}
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-slate-200 font-medium truncate">
+              {activeRoute.originName} → {activeRoute.destinationName}
+            </div>
+            {onTriggerDemoIncident && (
+              <button
+                type="button"
+                onClick={onTriggerDemoIncident}
+                className="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 font-mono text-[10.5px] text-amber-200 whitespace-nowrap transition-colors"
+              >
+                ⚡ Demo incident
+              </button>
+            )}
           </div>
-          <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+
+          <p className="text-[11px] text-slate-400 leading-relaxed line-clamp-2">
             {activeRoute.safetyAdvisory}
           </p>
           <ProvenanceStrip

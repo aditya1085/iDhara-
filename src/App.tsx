@@ -12,11 +12,19 @@ import {
   wrapInEnvelope,
 } from './modules/dataIngestion';
 import { evaluateDataHealth } from './modules/dataQuality';
-import { evaluateSheltersAndEvacuation } from './modules/evacuation';
+import {
+  DEFAULT_EVACUATION_CONFIG,
+  evaluateSheltersAndEvacuation,
+  EvacuationConfig,
+} from './modules/evacuation';
 import { getPresetById, resolveTimelineStepParameters } from './modules/historicalReplay';
 import { predictFloodRiskGrid } from './modules/prediction';
 import { evaluateRoadNetworkState } from './modules/roadState';
-import { computeRouteRecommendations } from './modules/routing';
+import {
+  computeRouteRecommendations,
+  selectDemoIncidentRoad,
+  TRAVEL_PROFILE_POLICIES,
+} from './modules/routing';
 import { generateValidationReport } from './modules/validation';
 import {
   ActivityFeedEntry,
@@ -27,7 +35,9 @@ import {
   ObservationInjectionType,
   ProductMode,
   RoadStatus,
+  RouteUpdateNotification,
   ScenarioParameters,
+  TravelProfile,
   UserRole,
   WarningLevel,
 } from './types/idhara';
@@ -137,7 +147,20 @@ export default function App() {
 
   const [customOriginId, setCustomOriginId] = useState<string>('NODE-RAJWADA');
   const [customDestId, setCustomDestId] = useState<string>('NODE-MY-HOSPITAL');
-  const [selectedRouteId, setSelectedRouteId] = useState<string>('RTE-AMB-RAJWADA-MYH');
+  const [travelProfile, setTravelProfile] = useState<TravelProfile>('AMBULANCE');
+  const [selectedRouteId, setSelectedRouteId] = useState<string>(
+    'RTE-PLANNER-NODE-RAJWADA-NODE-MY-HOSPITAL'
+  );
+  const [routeUpdateNotification, setRouteUpdateNotification] =
+    useState<RouteUpdateNotification | null>(null);
+  const [evacuationConfig, setEvacuationConfig] = useState<EvacuationConfig>(
+    DEFAULT_EVACUATION_CONFIG
+  );
+  const [lastEvacAutoRefreshNote, setLastEvacAutoRefreshNote] = useState<
+    string | null
+  >(
+    'Auto-refreshed at 18:42:15 when RD-05 (MG Road Krishnapura Bridge) transitioned to CLOSED.'
+  );
   const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Set<string>>(new Set());
   const [isPlayingTimeline, setIsPlayingTimeline] = useState<boolean>(false);
 
@@ -182,8 +205,15 @@ export default function App() {
   }, [cells, sensors, params, injectedObservations, stableTicksElapsed]);
 
   const routes = useMemo(
-    () => computeRouteRecommendations(roads, params, customOriginId, customDestId),
-    [roads, params, customOriginId, customDestId]
+    () =>
+      computeRouteRecommendations(
+        roads,
+        params,
+        customOriginId,
+        customDestId,
+        travelProfile
+      ),
+    [roads, params, customOriginId, customDestId, travelProfile]
   );
 
   // Track road state transitions and route recalculations in real time
@@ -211,6 +241,18 @@ export default function App() {
     if (newlyClosed.length > 0 || newlyOpened.length > 0) {
       const nowStr = new Date().toTimeString().slice(0, 8);
       const newEntries: ActivityFeedEntry[] = [];
+
+      // Automatically refresh Evacuation Plan whenever a major road changes state
+      const changedSummary = [...newlyClosed, ...newlyOpened]
+        .map((r) => `${r.id} (${r.name}) → ${r.currentState}`)
+        .join('; ');
+      setEvacuationConfig((prev) => ({
+        ...prev,
+        recalcVersion: prev.recalcVersion + 1,
+      }));
+      setLastEvacAutoRefreshNote(
+        `Evacuation plan automatically refreshed at ${nowStr} after road state change: ${changedSummary}`
+      );
 
       newlyClosed.forEach((r) => {
         const affectedRoutes = routes.filter((rt) =>
@@ -435,6 +477,7 @@ export default function App() {
 
   const handleResetObservations = () => {
     setInjectedObservations(DEFAULT_INJECTED_OBSERVATIONS);
+    setRouteUpdateNotification(null);
     setStableTicksElapsed(3);
     const nowStr = new Date().toTimeString().slice(0, 8);
     setActivityFeed((prev) =>
@@ -457,10 +500,327 @@ export default function App() {
     [routes, selectedRouteId]
   );
 
-  const { shelters, evacuationPlans } = useMemo(
-    () => evaluateSheltersAndEvacuation(cells, params),
-    [cells, params]
+  // ============================================================================
+  // LIVE REROUTING SUBSCRIPTION:
+  // Monitors road states on the currently selected route. If any road on the
+  // selected route changes state, automatically recomputes and notifies operator.
+  // ============================================================================
+  const subscribedRouteSnapRef = useRef<{
+    routeId: string;
+    originId: string;
+    destId: string;
+    profile: TravelProfile;
+    roadIds: string[];
+    roadStates: Map<string, RoadStatus>;
+    etaMin: number;
+    summary: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!activeRoute) return;
+    const roadMap = new Map(roads.map((r) => [r.id, r]));
+
+    const currentRoadIds = activeRoute.primaryRoute?.roadIds ?? [];
+    const currentStates = new Map<string, RoadStatus>();
+    roads.forEach((r) => currentStates.set(r.id, r.currentState));
+
+    const currentSummary =
+      currentRoadIds.length > 0
+        ? currentRoadIds
+            .map((id) => `${id} (${roadMap.get(id)?.name.split(' (')[0] ?? id})`)
+            .join(' → ')
+        : 'No Feasible Route';
+
+    const prevSnap = subscribedRouteSnapRef.current;
+
+    // Only trigger live subscription notification if same origin/dest/profile and a road on the previous route changed state
+    if (
+      prevSnap &&
+      prevSnap.originId === activeRoute.originNodeId &&
+      prevSnap.destId === activeRoute.destinationNodeId &&
+      prevSnap.profile === activeRoute.travelProfile &&
+      prevSnap.roadIds.length > 0
+    ) {
+      const changedRoadId = prevSnap.roadIds.find((rId) => {
+        const prevState = prevSnap.roadStates.get(rId);
+        const nowState = currentStates.get(rId);
+        return prevState && nowState && prevState !== nowState;
+      });
+
+      if (changedRoadId) {
+        const changedRoad = roadMap.get(changedRoadId);
+        const nowState = changedRoad?.currentState ?? RoadStatus.CLOSED;
+        const stateReadable =
+          nowState === RoadStatus.LIKELY_FLOODED
+            ? 'LIKELY FLOODED'
+            : nowState === RoadStatus.AT_RISK
+            ? 'AT RISK'
+            : nowState;
+
+        const nowStr = new Date().toTimeString().slice(0, 8);
+        const profLabel = TRAVEL_PROFILE_POLICIES[activeRoute.travelProfile].label;
+
+        setRouteUpdateNotification({
+          id: `RT-UPD-${Date.now()}`,
+          timestamp: nowStr,
+          bannerTitle: activeRoute.feasible ? 'ROUTE UPDATED' : 'NO FEASIBLE ROUTE',
+          reason: `Road segment ${changedRoadId} (${changedRoad?.name ?? ''}) became ${stateReadable}.`,
+          affectedRoadId: changedRoadId,
+          affectedRoadName: changedRoad?.name ?? changedRoadId,
+          newRoadState: nowState,
+          previousRouteRoadIds: prevSnap.roadIds,
+          previousRouteSummary: prevSnap.summary,
+          previousEtaMin: prevSnap.etaMin,
+          newRouteRoadIds: currentRoadIds,
+          newRouteSummary: currentSummary,
+          newEtaMin: activeRoute.feasible ? activeRoute.recommendedEtaMin : null,
+          explanation: activeRoute.feasible
+            ? `Route subscription detected ${changedRoadId} transitioning to ${nowState} (~${
+                changedRoad?.estimatedWaterDepthCm ?? 42
+              }cm depth). Under ${profLabel} policy, the previous route became invalid and was recalculated via ${currentSummary} (“Recommended under current data”).`
+            : `Route subscription detected ${changedRoadId} transitioning to ${nowState}, severing the last passable corridor for ${profLabel} profile.`,
+        });
+      }
+    }
+
+    subscribedRouteSnapRef.current = {
+      routeId: activeRoute.id,
+      originId: activeRoute.originNodeId,
+      destId: activeRoute.destinationNodeId,
+      profile: activeRoute.travelProfile,
+      roadIds: currentRoadIds,
+      roadStates: currentStates,
+      etaMin: activeRoute.recommendedEtaMin,
+      summary: currentSummary,
+    };
+  }, [roads, activeRoute]);
+
+  /**
+   * Major Demo Moment: "Demo incident" button
+   * 1. Closes one important road on the active route.
+   * 2. Shows the current route becoming invalid.
+   * 3. Recalculates the route.
+   * 4. Displays the alternate route.
+   * 5. Explains why the route changed.
+   */
+  const handleTriggerDemoIncident = () => {
+    setActiveTab('roads-routing');
+    setStableTicksElapsed(3);
+
+    const targetRoad = selectDemoIncidentRoad(activeRoute, roads, params);
+    if (!targetRoad) return;
+
+    const nowStr = new Date().toTimeString().slice(0, 8);
+
+    // Inject closure & crowd/sensor evidence on targetRoad so it transitions on the active route
+    setInjectedObservations((prev) => ({
+      ...prev,
+      officialRoadOverrides: {
+        ...prev.officialRoadOverrides,
+        [targetRoad.id]: 'CLOSED',
+      },
+      crowdReportsByRoad: {
+        ...prev.crowdReportsByRoad,
+        [targetRoad.id]: {
+          count: 3,
+          lastReportText:
+            'DEMO INCIDENT: Flash inundation & police barricade across deck',
+          timestamp: nowStr,
+        },
+      },
+    }));
+
+    setSelectedTarget({ type: 'ROAD', id: targetRoad.id });
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-DEMO-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROUTING' as const,
+          message: `DEMO INCIDENT: Closed ${targetRoad.id} (${targetRoad.name}) on active route`,
+          detail: `Previous route invalidated · Route subscription automatically recalculated alternate corridor.`,
+          severity: 'CRITICAL' as const,
+          relatedTarget: { type: 'ROAD' as const, id: targetRoad.id },
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
+  /**
+   * Demonstrates "NO FEASIBLE ROUTE" behavior without fabricating a route:
+   * Closes all corridors connected to the current Origin node so that no path exists.
+   */
+  const handleTriggerNoFeasibleRouteDemo = () => {
+    setActiveTab('roads-routing');
+    setStableTicksElapsed(3);
+    const originId = activeRoute?.originNodeId ?? customOriginId;
+    const incidentRoads = roads.filter(
+      (r) => r.fromNodeId === originId || r.toNodeId === originId
+    );
+
+    const overrides: Record<string, 'CLOSED' | 'OPEN'> = {};
+    incidentRoads.forEach((r) => {
+      overrides[r.id] = 'CLOSED';
+    });
+
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setInjectedObservations((prev) => ({
+      ...prev,
+      officialRoadOverrides: {
+        ...prev.officialRoadOverrides,
+        ...overrides,
+      },
+    }));
+
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-NOROUTE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROUTING' as const,
+          message: `NO FEASIBLE ROUTE: All outgoing corridors from ${
+            activeRoute?.originName ?? originId
+          } are CLOSED`,
+          detail: `Do not fabricate route · Displaying nearest reachable safe point & available shelter.`,
+          severity: 'CRITICAL' as const,
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
+  const {
+    shelters,
+    evacuationPlans,
+    evacuationModeActive,
+    evacuationTriggerReason,
+  } = useMemo(
+    () => evaluateSheltersAndEvacuation(cells, params, roads, evacuationConfig),
+    [cells, params, roads, evacuationConfig]
   );
+
+  const handleToggleManualEvacuation = () => {
+    setEvacuationConfig((prev) => ({
+      ...prev,
+      manualModeActive: !prev.manualModeActive,
+      recalcVersion: prev.recalcVersion + 1,
+    }));
+  };
+
+  const handleChangeEvacuationThreshold = (threshold: number) => {
+    setEvacuationConfig((prev) => ({
+      ...prev,
+      thresholdProbability: threshold,
+      recalcVersion: prev.recalcVersion + 1,
+    }));
+  };
+
+  const handleChangeShelterCapacityScale = (scalePct: number) => {
+    setEvacuationConfig((prev) => ({
+      ...prev,
+      shelterCapacityScalePct: scalePct,
+      recalcVersion: prev.recalcVersion + 1,
+    }));
+  };
+
+  const handleRecalculateEvacuationPlan = () => {
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setEvacuationConfig((prev) => ({
+      ...prev,
+      recalcVersion: prev.recalcVersion + 1,
+    }));
+    setLastEvacAutoRefreshNote(
+      `Operator manually recalculated evacuation plan at ${nowStr} under current road & shelter telemetry.`
+    );
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-EVAC-RECALC-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROUTING' as const,
+          message: 'Recalculated capacity-aware evacuation plan across affected zones',
+          detail: 'Removed CLOSED roads, penalized high-risk/uncertain corridors, and updated shelter load.',
+          severity: 'INFO' as const,
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
+  const handleSimulateEvacFailureState = (
+    scenario:
+      | 'CAPACITY_EXCEEDED'
+      | 'ROAD_DISCONNECTED'
+      | 'NO_REACHABLE_SHELTER'
+      | 'RESET'
+  ) => {
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setStableTicksElapsed(3);
+
+    if (scenario === 'RESET') {
+      setInjectedObservations(DEFAULT_INJECTED_OBSERVATIONS);
+      setEvacuationConfig(DEFAULT_EVACUATION_CONFIG);
+      setLastEvacAutoRefreshNote(
+        `Reset evacuation constraints & road overrides to baseline (${nowStr}).`
+      );
+      return;
+    }
+
+    if (scenario === 'CAPACITY_EXCEEDED') {
+      setInjectedObservations(DEFAULT_INJECTED_OBSERVATIONS);
+      setEvacuationConfig((prev) => ({
+        ...prev,
+        thresholdProbability: 0.45,
+        shelterCapacityScalePct: 40,
+        manualModeActive: true,
+        recalcVersion: prev.recalcVersion + 1,
+      }));
+      setLastEvacAutoRefreshNote(
+        `Simulated Shelter Capacity Crunch (${nowStr}): Shelter capacity capped at 40% to verify “Shelter capacity exceeded” failure state.`
+      );
+    } else if (scenario === 'ROAD_DISCONNECTED') {
+      // Close all roads connected to NODE-KRISHNAPURA (RD-05, RD-06, RD-11) and NODE-RAJWADA (RD-04, RD-05, RD-15)
+      setInjectedObservations((prev) => ({
+        ...prev,
+        officialRoadOverrides: {
+          ...prev.officialRoadOverrides,
+          'RD-04': 'CLOSED',
+          'RD-05': 'CLOSED',
+          'RD-06': 'CLOSED',
+          'RD-11': 'CLOSED',
+          'RD-15': 'CLOSED',
+        },
+      }));
+      setEvacuationConfig((prev) => ({
+        ...prev,
+        shelterCapacityScalePct: 100,
+        recalcVersion: prev.recalcVersion + 1,
+      }));
+      setLastEvacAutoRefreshNote(
+        `Auto-refreshed at ${nowStr}: Corridors RD-04, RD-05, RD-06, RD-11, RD-15 CLOSED — Krishnapura & Rajwada zones disconnected from road network.`
+      );
+    } else if (scenario === 'NO_REACHABLE_SHELTER') {
+      // Close the access roads to all 4 municipal shelters (RD-02, RD-10, RD-20, RD-21)
+      setInjectedObservations((prev) => ({
+        ...prev,
+        officialRoadOverrides: {
+          'RD-02': 'CLOSED',
+          'RD-10': 'CLOSED',
+          'RD-20': 'CLOSED',
+          'RD-21': 'CLOSED',
+        },
+      }));
+      setEvacuationConfig((prev) => ({
+        ...prev,
+        shelterCapacityScalePct: 100,
+        recalcVersion: prev.recalcVersion + 1,
+      }));
+      setLastEvacAutoRefreshNote(
+        `Auto-refreshed at ${nowStr}: Shelter access roads RD-02, RD-10, RD-20, RD-21 CLOSED — No reachable shelters remaining.`
+      );
+    }
+  };
 
   const alerts = useMemo(
     () => generateOperationalAlerts(cells, roads, sensors, params, acknowledgedAlerts),
@@ -532,9 +892,15 @@ export default function App() {
   const handleChangeCustomRoute = (originId: string, destId: string) => {
     setCustomOriginId(originId);
     setCustomDestId(destId);
+    setRouteUpdateNotification(null);
     if (originId !== destId) {
-      setSelectedRouteId(`RTE-CUSTOM-${originId}-${destId}`);
+      setSelectedRouteId(`RTE-PLANNER-${originId}-${destId}`);
     }
+  };
+
+  const handleChangeTravelProfile = (profile: TravelProfile) => {
+    setTravelProfile(profile);
+    setRouteUpdateNotification(null);
   };
 
   const modeMeta = MODE_META[params.mode];
@@ -807,12 +1173,29 @@ export default function App() {
                 sensors={sensors}
                 shelters={shelters}
                 evacuationPlans={evacuationPlans}
+                evacuationModeActive={evacuationModeActive}
+                evacuationTriggerReason={evacuationTriggerReason}
+                evacuationThreshold={evacuationConfig.thresholdProbability}
+                manualEvacuationActive={evacuationConfig.manualModeActive}
+                shelterCapacityScalePct={evacuationConfig.shelterCapacityScalePct}
+                lastEvacAutoRefreshNote={lastEvacAutoRefreshNote}
+                onToggleManualEvacuation={handleToggleManualEvacuation}
+                onChangeEvacuationThreshold={handleChangeEvacuationThreshold}
+                onChangeShelterCapacityScale={handleChangeShelterCapacityScale}
+                onRecalculateEvacuationPlan={handleRecalculateEvacuationPlan}
+                onSimulateEvacFailureState={handleSimulateEvacFailureState}
                 routes={routes}
                 activeRouteId={activeRoute?.id ?? ''}
                 onSelectRouteId={setSelectedRouteId}
                 customOriginId={customOriginId}
                 customDestId={customDestId}
+                travelProfile={travelProfile}
                 onChangeCustomRoute={handleChangeCustomRoute}
+                onChangeTravelProfile={handleChangeTravelProfile}
+                routeUpdateNotification={routeUpdateNotification}
+                onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
+                onTriggerDemoIncident={handleTriggerDemoIncident}
+                onTriggerNoFeasibleRouteDemo={handleTriggerNoFeasibleRouteDemo}
                 alerts={alerts}
                 onAcknowledgeAlert={handleAcknowledgeAlert}
                 validationReport={validationReport}
@@ -833,6 +1216,7 @@ export default function App() {
                   sensors={sensors}
                   shelters={shelters}
                   activeRoute={activeRoute}
+                  routeUpdateNotification={routeUpdateNotification}
                   selectedTarget={selectedTarget}
                   onSelectTarget={setSelectedTarget}
                 />
@@ -853,6 +1237,8 @@ export default function App() {
           alerts={alerts}
           params={params}
           activeRoute={activeRoute}
+          routeUpdateNotification={routeUpdateNotification}
+          onTriggerDemoIncident={handleTriggerDemoIncident}
           activeRole={activeRole}
           onNavigateTab={setActiveTab}
           stableTicksElapsed={stableTicksElapsed}

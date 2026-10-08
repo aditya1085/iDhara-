@@ -186,7 +186,7 @@ export function evaluateIsolatedTwinScenario(
   const rawCells = predictFloodRiskGrid(isolatedParams, rawSensors);
   const rawRoads = evaluateRoadNetworkState(rawCells, rawSensors, isolatedParams);
   const { shelters: rawShelters, evacuationPlans: rawEvac } =
-    evaluateSheltersAndEvacuation(rawCells, isolatedParams);
+    evaluateSheltersAndEvacuation(rawCells, isolatedParams, rawRoads);
   const rawRoutes = computeRouteRecommendations(rawRoads, isolatedParams);
 
   // Stamp isolated scope_id onto every scenario object so it never leaks into LIVE/Current scope

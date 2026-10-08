@@ -174,14 +174,23 @@ export function evaluateRoadNetworkState(
       transitionReason = `Hysteresis Hold: Maintaining ${currentState} (${stableTicksElapsed}/3 stable ticks) to prevent rapid state flipping.`;
     }
 
-    // Effective travel time penalty for routing graph
-    let effectiveTravelTimeMin = seg.baseTravelTimeMin;
+    // Effective travel time penalty & explicit riskPenaltyMin for routing graph
+    let riskPenaltyMin = Number((floodProbability * 1.8).toFixed(1));
+    let effectiveTravelTimeMin = Number((seg.baseTravelTimeMin + riskPenaltyMin).toFixed(1));
+
     if (currentState === RoadStatus.CLOSED) {
+      riskPenaltyMin = Number.POSITIVE_INFINITY;
       effectiveTravelTimeMin = Number.POSITIVE_INFINITY;
     } else if (currentState === RoadStatus.LIKELY_FLOODED) {
-      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin * 2.8).toFixed(1));
+      riskPenaltyMin = Number(
+        (seg.baseTravelTimeMin * 2.2 + floodProbability * 12).toFixed(1)
+      );
+      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin + riskPenaltyMin).toFixed(1));
     } else if (currentState === RoadStatus.AT_RISK) {
-      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin * 1.5).toFixed(1));
+      riskPenaltyMin = Number(
+        (seg.baseTravelTimeMin * 0.65 + floodProbability * 4.5).toFixed(1)
+      );
+      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin + riskPenaltyMin).toFixed(1));
     }
 
     // Assemble transparent evidence chain
@@ -251,6 +260,9 @@ export function evaluateRoadNetworkState(
     }
 
     const prov = createProvenance(params.mode, roadConf, params.timelineHourOffset);
+    const expiry = new Date(
+      new Date(prov.generated_at).getTime() + 12 * 60 * 1000
+    ).toISOString();
 
     return {
       ...seg,
@@ -262,7 +274,9 @@ export function evaluateRoadNetworkState(
       agreeingObservationsCount,
       floodProbability,
       estimatedWaterDepthCm,
+      riskPenaltyMin,
       effectiveTravelTimeMin,
+      expiry,
       evidence,
       lastUpdate:
         officialOverride || crowdReport

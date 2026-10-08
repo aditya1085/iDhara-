@@ -14,6 +14,7 @@ import {
   RoadSegmentState,
   RoadStatus,
   RouteRecommendation,
+  RouteUpdateNotification,
   SensorNode,
   Shelter,
 } from '../types/idhara';
@@ -33,6 +34,7 @@ interface IndoreFloodMapProps {
   sensors: SensorNode[];
   shelters: Shelter[];
   activeRoute: RouteRecommendation | null;
+  routeUpdateNotification?: RouteUpdateNotification | null;
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
 }
@@ -52,6 +54,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   sensors,
   shelters,
   activeRoute,
+  routeUpdateNotification,
   selectedTarget,
   onSelectTarget,
 }) => {
@@ -354,6 +357,37 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             Active View: {MAP_METRIC_OPTIONS.find((m) => m.id === metricOverlay)?.label}
           </span>
         </div>
+
+        {/* Top-Right Live Route Subscription / Rerouting Status Banner */}
+        {routeUpdateNotification && (
+          <div className="absolute top-3 right-3 z-10 max-w-sm bg-amber-950/95 border border-amber-400/80 px-3 py-2 font-mono text-[11px] shadow-xl pointer-events-none">
+            <div className="flex items-center justify-between gap-2 text-amber-300 font-bold">
+              <span>⚡ {routeUpdateNotification.bannerTitle}</span>
+              <span className="text-[10px] text-amber-200">{routeUpdateNotification.timestamp}</span>
+            </div>
+            <div className="text-white font-semibold mt-0.5">
+              Reason: “{routeUpdateNotification.reason}”
+            </div>
+            <div className="text-[10.5px] text-slate-200 mt-0.5">
+              {routeUpdateNotification.explanation}
+            </div>
+          </div>
+        )}
+
+        {!routeUpdateNotification && activeRoute && !activeRoute.feasible && (
+          <div className="absolute top-3 right-3 z-10 max-w-sm bg-rose-950/95 border border-rose-500/80 px-3 py-2 font-mono text-[11px] shadow-xl pointer-events-none">
+            <div className="text-rose-300 font-bold">✖ NO FEASIBLE ROUTE</div>
+            <div className="text-slate-200 text-[10.5px] mt-0.5">
+              {activeRoute.noRouteInfo?.reason}
+            </div>
+            {activeRoute.noRouteInfo?.nearestReachableSafePoint && (
+              <div className="text-emerald-300 text-[10.5px] mt-0.5">
+                Nearest Safe Point: {activeRoute.noRouteInfo.nearestReachableSafePoint.nodeName} (
+                {activeRoute.noRouteInfo.nearestReachableSafePoint.elevationM}m MSL)
+              </div>
+            )}
+          </div>
+        )}
 
         <svg
           viewBox="-25 -25 1050 1050"
@@ -770,29 +804,13 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           {/* 5. Active Recommended Route Overlay ("Recommended under current data") */}
           {layers.activeRoute && activeRoute && (
             <g pointerEvents="none">
-              {activeRoute.avoidedHazardCount > 0 &&
-                activeRoute.baselineShortestRoadIds.map((rId) => {
-                  const r = roads.find((item) => item.id === rId);
-                  if (!r) return null;
-                  const f = nodeMap.get(r.fromNodeId);
-                  const t = nodeMap.get(r.toNodeId);
-                  if (!f || !t) return null;
-                  return (
-                    <line
-                      key={`base-${rId}`}
-                      x1={f.x}
-                      y1={f.y}
-                      x2={t.x}
-                      y2={t.y}
-                      stroke="#F43F5E"
-                      strokeWidth="3"
-                      strokeDasharray="3 6"
-                      opacity="0.7"
-                    />
-                  );
-                })}
-
-              {activeRoute.recommendedRoadIds.map((rId) => {
+              {/* Invalidated Previous Route or Blocked Dry Baseline */}
+              {(routeUpdateNotification?.previousRouteRoadIds?.length
+                ? routeUpdateNotification.previousRouteRoadIds
+                : activeRoute.avoidedHazardCount > 0
+                ? activeRoute.baselineShortestRoadIds
+                : []
+              ).map((rId) => {
                 const r = roads.find((item) => item.id === rId);
                 if (!r) return null;
                 const f = nodeMap.get(r.fromNodeId);
@@ -800,16 +818,82 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 if (!f || !t) return null;
                 return (
                   <line
-                    key={`rec-${rId}`}
+                    key={`base-${rId}`}
                     x1={f.x}
                     y1={f.y}
                     x2={t.x}
                     y2={t.y}
-                    stroke="#22D3EE"
-                    strokeWidth="5.5"
-                    strokeLinecap="round"
-                    filter="url(#route-glow)"
+                    stroke="#F43F5E"
+                    strokeWidth="4"
+                    strokeDasharray="4 6"
+                    opacity="0.85"
                   />
+                );
+              })}
+
+              {/* Alternative Route (if distinct feasible alternative exists) */}
+              {activeRoute.alternativeRoute &&
+                activeRoute.alternativeRoute.roadIds.map((rId) => {
+                  const r = roads.find((item) => item.id === rId);
+                  if (!r) return null;
+                  const f = nodeMap.get(r.fromNodeId);
+                  const t = nodeMap.get(r.toNodeId);
+                  if (!f || !t) return null;
+                  return (
+                    <line
+                      key={`alt-${rId}`}
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#34D399"
+                      strokeWidth="3.5"
+                      strokeDasharray="8 5"
+                      strokeLinecap="round"
+                      opacity="0.8"
+                    />
+                  );
+                })}
+
+              {/* Primary Route (Animated Cyan Flow) */}
+              {activeRoute.recommendedRoadIds.map((rId) => {
+                const r = roads.find((item) => item.id === rId);
+                if (!r) return null;
+                const f = nodeMap.get(r.fromNodeId);
+                const t = nodeMap.get(r.toNodeId);
+                if (!f || !t) return null;
+                return (
+                  <g key={`rec-${rId}-${activeRoute.recommendedRoadIds.join('-')}`}>
+                    <line
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#0891B2"
+                      strokeWidth="7"
+                      strokeLinecap="round"
+                      opacity="0.55"
+                    />
+                    <line
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#22D3EE"
+                      strokeWidth="4.5"
+                      strokeDasharray="12 6"
+                      strokeLinecap="round"
+                      filter="url(#route-glow)"
+                    >
+                      <animate
+                        attributeName="stroke-dashoffset"
+                        from="36"
+                        to="0"
+                        dur="1.1s"
+                        repeatCount="indefinite"
+                      />
+                    </line>
+                  </g>
                 );
               })}
             </g>
