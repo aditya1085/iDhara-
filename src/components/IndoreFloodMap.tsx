@@ -80,6 +80,12 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   const [hoveredInfo, setHoveredInfo] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
+  const [isRouteErrorDismissed, setIsRouteErrorDismissed] = useState<boolean>(false);
+
+  // Reset dismiss state whenever active route changes
+  useEffect(() => {
+    setIsRouteErrorDismissed(false);
+  }, [activeRoute?.id, activeRoute?.feasible]);
 
   const nodeMap = new Map(INTERSECTION_NODES.map((n) => [n.id, n]));
   const modeMeta = MODE_META[mode];
@@ -190,23 +196,23 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   return (
     <div className="relative flex flex-col w-full h-full bg-[#05080E] border border-slate-800/90 select-none overflow-hidden">
       {/* Top Map Toolbar: Search, Pilot Overview Button, 5-Metric Surface Switcher, Layer & Zoom Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#0A0F1A] border-b border-slate-800/90 z-20">
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[#0A0F1A] border-b border-slate-800/90 z-20 shrink-0 overflow-x-auto">
         {/* Left: Map Search Input + Pilot Overview Reset */}
-        <div className="flex items-center gap-2 relative">
-          <div className="relative w-48 sm:w-56">
+        <div className="flex items-center gap-1.5 relative shrink-0">
+          <div className="relative w-36 sm:w-48">
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search ward, road, gauge…"
+              placeholder="Search ward, road…"
               aria-label="Search Indore pilot map entities"
-              className="w-full bg-[#060911] border border-slate-700/90 focus:border-cyan-400 text-xs font-mono text-slate-100 px-2.5 py-1.5 outline-none placeholder:text-slate-500"
+              className="w-full bg-[#060911] border border-slate-700/90 focus:border-cyan-400 text-xs font-mono text-slate-100 px-2 py-1 outline-none placeholder:text-slate-500"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1.5 text-xs font-mono text-slate-400 hover:text-white"
+                className="absolute right-2 top-1 text-xs font-mono text-slate-400 hover:text-white"
               >
                 ×
               </button>
@@ -236,15 +242,15 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           <button
             type="button"
             onClick={handleResetPilotOverview}
-            className="px-2.5 py-1.5 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
+            className="px-2 py-1 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
             title="Reset viewport to full 5km × 5km Indore Pilot Overview"
           >
-            ⌖ Pilot Overview
+            ⌖ Overview
           </button>
         </div>
 
         {/* Center: 5-Way Map Surface Switcher (Flood probability | Severity | Uncertainty | Data confidence | Rainfall) */}
-        <div className="flex flex-wrap items-center gap-1 bg-[#060911] p-0.5 border border-slate-800">
+        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 shrink-0 overflow-x-auto">
           {MAP_METRIC_OPTIONS.map((opt) => {
             const active = metricOverlay === opt.id;
             return (
@@ -252,7 +258,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 key={opt.id}
                 type="button"
                 onClick={() => setMetricOverlay(opt.id)}
-                className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+                className={`px-2 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
                   active
                     ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
                     : 'text-slate-400 hover:text-slate-200'
@@ -401,18 +407,78 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           </div>
         )}
 
-        {!routeUpdateNotification && activeRoute && !activeRoute.feasible && (
-          <div className="absolute top-3 right-3 z-10 max-w-sm bg-[#1C080B] border border-rose-500 px-3 py-2 font-mono text-[11px] shadow-2xl pointer-events-none">
-            <div className="text-rose-300 font-bold">✖ NO FEASIBLE ROUTE</div>
-            <div className="text-slate-200 text-[10.5px] mt-0.5">
-              {activeRoute.noRouteInfo?.reason}
-            </div>
-            {activeRoute.noRouteInfo?.nearestReachableSafePoint && (
-              <div className="text-emerald-300 text-[10.5px] mt-0.5">
-                Nearest Safe Point: {activeRoute.noRouteInfo.nearestReachableSafePoint.nodeName} (
-                {activeRoute.noRouteInfo.nearestReachableSafePoint.elevationM}m MSL)
+        {!routeUpdateNotification && activeRoute && !activeRoute.feasible && !isRouteErrorDismissed && (
+          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#180A0D]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
+            <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
+              <div className="flex items-center gap-1.5 text-rose-300 font-bold">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                <span>NO FEASIBLE ROUTE</span>
               </div>
-            )}
+              <button
+                type="button"
+                onClick={() => setIsRouteErrorDismissed(true)}
+                className="text-slate-400 hover:text-white text-xs px-1"
+                title="Dismiss route error notification"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="text-slate-200 text-xs font-sans mb-1 leading-snug">
+              {activeRoute.travelProfile} routing is currently unavailable between:
+              <div className="font-semibold text-white mt-0.5">
+                {activeRoute.originName} → {activeRoute.destinationName}
+              </div>
+            </div>
+
+            <div className="text-[10.5px] text-rose-200/90 bg-rose-950/60 p-1.5 border border-rose-900/60 mb-2">
+              <strong className="text-rose-300">Reason:</strong> All currently available corridors are closed or above the configured safety threshold.
+            </div>
+
+            <div className="text-[10.5px] space-y-0.5 mb-2">
+              <div className="text-amber-300 font-semibold">Recommended action:</div>
+              <div className="text-slate-300 pl-1.5 space-y-0.5">
+                <div>• Wait for road-state update</div>
+                <div>• Select another destination</div>
+                {activeRoute.noRouteInfo?.nearestReachableSafePoint && (
+                  <div>
+                    • Nearest safe point:{' '}
+                    <strong className="text-emerald-300">
+                      {activeRoute.noRouteInfo.nearestReachableSafePoint.nodeName} ({activeRoute.noRouteInfo.nearestReachableSafePoint.elevationM}m MSL)
+                    </strong>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-rose-900/60">
+              <button
+                type="button"
+                onClick={() => {
+                  const targetRoadId = activeRoute.noRouteInfo?.severedRoadIds?.[0] ?? 'RD-05';
+                  onSelectTarget({ type: 'ROAD', id: targetRoadId });
+                }}
+                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-cyan-300 transition-colors"
+              >
+                View affected roads
+              </button>
+              <button
+                type="button"
+                onClick={() => onSelectTarget({ type: 'ASSET', id: 'AST-HOSP-02' })}
+                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-slate-300 hover:text-white transition-colors"
+              >
+                Try another destination
+              </button>
+            </div>
+
+            <details className="mt-1.5 text-[9.5px] text-slate-400">
+              <summary className="cursor-pointer hover:text-slate-200">
+                Technical Details (Corridor Diagnostics)
+              </summary>
+              <div className="mt-1 p-1 bg-black/60 border border-slate-800 text-slate-300 font-mono break-words leading-tight max-h-24 overflow-y-auto">
+                {activeRoute.noRouteInfo?.reason}
+              </div>
+            </details>
           </div>
         )}
 

@@ -12,6 +12,8 @@ import {
   TwinPresetId,
 } from '../modules/disasterTwin';
 import {
+  DISASTER_STAGE_INFO,
+  DisasterStage,
   FloodRiskCell,
   FloodSeverity,
   RoadSegmentState,
@@ -37,6 +39,7 @@ interface DisasterTwinWorkspaceProps {
   baselineParams: ScenarioParameters;
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
+  onSelectStage?: (stage: DisasterStage) => void;
   onReturnToLive?: () => void;
 }
 
@@ -46,6 +49,7 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   baselineParams,
   selectedTarget,
   onSelectTarget,
+  onSelectStage,
   onReturnToLive,
 }) => {
   // Primary interactive Scenario A controls
@@ -519,18 +523,64 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
     );
   };
 
+  const stageInfo =
+    DISASTER_STAGE_INFO[baselineParams.stage] ??
+    DISASTER_STAGE_INFO[DisasterStage.REAL_TIME_ONGOING];
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#060911] p-4 space-y-3">
       {/* 0. MANDATORY DATA HONESTY STRIP (mode · scope · timestamp · confidence · freshness) */}
       <ScreenHonestyHeader
-        screenTitle="DISASTER TWIN WORKSPACE"
-        screenSubtle="Isolated Hydrological What-If Simulation"
+        screenTitle={`DISASTER TWIN WORKSPACE — STAGE ${stageInfo.num}: ${stageInfo.label.toUpperCase()}`}
+        screenSubtle={stageInfo.subtitle}
         mode={activeScenario.mode}
         scopeId={activeScenario.scope_id}
         timestamp={activeScenario.generated_at}
         confidencePct={Math.round(activeScenario.confidence * 100)}
         freshnessLabel="SYNTHETIC HORIZON (+30m..+120m)"
       />
+
+      {/* 0B. AUTHORITATIVE FOUR-STAGE STATE MACHINE SWITCHER */}
+      <div className="p-2.5 bg-[#0A0F1A] border border-cyan-500/40 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-cyan-400 font-bold text-[11px] tracking-wide">
+            DISASTER TWIN STAGE:
+          </span>
+          <span className="px-2 py-0.5 bg-cyan-950 border border-cyan-500/60 text-cyan-200 font-bold">
+            {stageInfo.label}
+          </span>
+          <span className="text-slate-400 text-[10.5px] hidden md:inline">
+            — {stageInfo.focus}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          {(
+            [
+              DisasterStage.EARLY_WARNING,
+              DisasterStage.PRE_DISASTER_SCENARIO,
+              DisasterStage.REAL_TIME_ONGOING,
+              DisasterStage.POST_DISASTER_LEARNING,
+            ] as const
+          ).map((st) => {
+            const isCurrent = baselineParams.stage === st;
+            const meta = DISASTER_STAGE_INFO[st];
+            return (
+              <button
+                key={st}
+                type="button"
+                onClick={() => onSelectStage?.(st)}
+                className={`px-2.5 py-1 text-[11px] font-mono border transition-colors whitespace-nowrap ${
+                  isCurrent
+                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow-[0_0_8px_rgba(34,211,238,0.3)]'
+                    : 'bg-[#0D1320] border-slate-700 text-slate-300 hover:text-white hover:border-slate-500'
+                }`}
+              >
+                {meta.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       {/* 1. VERY PROMINENT "SIMULATION — NOT LIVE" ISOLATION BANNER */}
       <div className="p-3 bg-amber-950/50 border-2 border-amber-400/80 flex flex-wrap items-center justify-between gap-3">

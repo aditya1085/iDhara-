@@ -691,3 +691,54 @@ export interface DataHealthReport extends DataProvenance {
     status: 'HEALTHY' | 'DEGRADED' | 'SIMULATED_SYNTHETIC';
   }>;
 }
+
+export interface DisasterStageMeta {
+  num: number;
+  id: DisasterStage;
+  label: string;
+  shortLabel: string;
+  tag: string;
+  subtitle: string;
+  focus: string;
+}
+
+export const DISASTER_STAGE_INFO: Record<DisasterStage, DisasterStageMeta> = {
+  [DisasterStage.EARLY_WARNING]: {
+    num: 1,
+    id: DisasterStage.EARLY_WARNING,
+    label: '1. Early Warning',
+    shortLabel: 'Early Warning',
+    tag: 'ADVISORY & RUNOFF FORECAST',
+    subtitle: 'Pre-storm rainfall forecast, soil saturation index, and catchment runoff accumulation',
+    focus: 'Issuing proactive hydrologic advisories prior to water pooling on roads.',
+  },
+  [DisasterStage.PRE_DISASTER_SCENARIO]: {
+    num: 2,
+    id: DisasterStage.PRE_DISASTER_SCENARIO,
+    label: '2. Pre-Disaster Sim',
+    shortLabel: 'Pre-Disaster Sim',
+    tag: 'STRESS-TEST & SCENARIOS',
+    subtitle: 'Stress-testing city infrastructure against extreme precipitation bursts (+20%, +50%) and culvert blockages',
+    focus: 'Stress-testing city infrastructure and corridor safety thresholds before storm onset.',
+  },
+  [DisasterStage.REAL_TIME_ONGOING]: {
+    num: 3,
+    id: DisasterStage.REAL_TIME_ONGOING,
+    label: '3. Real-Time Ongoing',
+    shortLabel: 'Real-Time Ongoing',
+    tag: 'LIVE SENSOR TELEMETRY & DISPATCH',
+    subtitle: 'Live ultrasonic gauge surge ingestion, road inundation, and emergency vehicle rerouting',
+    focus: 'Monitoring live sensor telemetry and routing emergency response around flooded roads.',
+  },
+  [DisasterStage.POST_DISASTER_LEARNING]: {
+    num: 4,
+    id: DisasterStage.POST_DISASTER_LEARNING,
+    label: '4. Post-Disaster Learn',
+    shortLabel: 'Post-Disaster Learn',
+    tag: 'EVENT REPLAY & VALIDATION',
+    subtitle: 'Historical monsoon archive replay, false-negative verification, and model calibration',
+    focus: 'Replaying past cloudbursts to audit prediction accuracy and calibrate models.',
+  },
+};
+
+

@@ -238,7 +238,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
   };
 
   return (
-    <aside className="w-full lg:w-[410px] xl:w-[440px] shrink-0 bg-[#090D16] border-l border-slate-800/90 flex flex-col h-full overflow-y-auto">
+    <aside className="w-80 lg:w-[360px] xl:w-[380px] shrink-0 bg-[#090D16] border-l border-slate-800/90 flex flex-col h-full overflow-hidden select-none">
       {/* Right Panel Mode Switcher */}
       <div className="px-3.5 py-2.5 border-b border-slate-800/90 bg-[#0B101B] flex flex-col gap-1.5 shrink-0">
         <div className="flex items-center justify-between font-mono text-[10.5px]">

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { getEventPresets } from '../modules/historicalReplay';
 import { MODEL_VERSIONS } from '../modules/validation';
 import {
+  DISASTER_STAGE_INFO,
   DisasterStage,
   FloodRiskCell,
   FloodSeverity,
@@ -92,7 +93,7 @@ export const PostDisasterLearningWorkspace: React.FC<
   });
 
   return (
-    <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[62vh] overflow-y-auto">
+    <div className="flex-1 min-h-0 p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 overflow-y-auto">
       {/* =====================================================================
           TOP BANNER: CORE LEARNING THESIS + PROVENANCE
          ===================================================================== */}
@@ -102,7 +103,7 @@ export const PostDisasterLearningWorkspace: React.FC<
             <span className="text-cyan-400 font-bold">
               {activeTab === 'event-replay'
                 ? 'EVENT REPLAY & TEMPORAL STORM RECONSTRUCTION'
-                : 'STAGE 4: POST-DISASTER LEARNING, VALIDATION & CALIBRATION'}
+                : `STAGE ${DISASTER_STAGE_INFO[params.stage]?.num ?? 4}: ${DISASTER_STAGE_INFO[params.stage]?.label.toUpperCase() ?? 'POST-DISASTER LEARNING & VALIDATION'}`}
             </span>
             <span className="text-slate-600">·</span>
             <span className="text-emerald-300 font-semibold">
