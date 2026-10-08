@@ -5,6 +5,7 @@ import {
   INTERSECTION_NODES,
 } from '../data/indorePilotData';
 import {
+  buildCurrentTwinSnapshot,
   evaluateIsolatedTwinScenario,
   IsolatedTwinSnapshot,
   TWIN_PRESET_OPTIONS,
@@ -16,9 +17,13 @@ import {
   DisasterStage,
   FloodRiskCell,
   FloodSeverity,
+  InjectedObservationState,
   RoadSegmentState,
   RoadStatus,
+  RouteRecommendation,
   ScenarioParameters,
+  SensorNode,
+  Shelter,
 } from '../types/idhara';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import {
@@ -37,6 +42,12 @@ interface DisasterTwinWorkspaceProps {
    * CRITICAL RULE: Disaster Twin never mutates the LIVE/Current state.
    */
   baselineParams: ScenarioParameters;
+  baselineCells?: FloodRiskCell[];
+  baselineRoads?: RoadSegmentState[];
+  baselineSensors?: SensorNode[];
+  baselineShelters?: Shelter[];
+  baselineRoutes?: RouteRecommendation[];
+  injectedObservations?: InjectedObservationState;
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
   onSelectStage?: (stage: DisasterStage) => void;
@@ -47,6 +58,12 @@ const DURATION_OPTIONS: TwinDurationMinutes[] = [30, 60, 90, 120];
 
 export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   baselineParams,
+  baselineCells,
+  baselineRoads,
+  baselineSensors,
+  baselineShelters,
+  baselineRoutes,
+  injectedObservations,
   selectedTarget,
   onSelectTarget,
   onSelectStage,
@@ -84,36 +101,63 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
     }
   }, [baselineParams.stage]);
 
-  // 1. Immutable Current / Baseline Snapshot (0% change, 60m reference)
-  const currentSnapshot: IsolatedTwinSnapshot = useMemo(
-    () =>
-      evaluateIsolatedTwinScenario(baselineParams, {
+  // 1. Authoritative Current / Baseline Snapshot directly from shared data source
+  const currentSnapshot: IsolatedTwinSnapshot = useMemo(() => {
+    if (baselineCells && baselineRoads && baselineShelters && baselineRoutes) {
+      return buildCurrentTwinSnapshot(
+        baselineParams,
+        baselineCells,
+        baselineRoads,
+        baselineShelters,
+        [],
+        baselineRoutes
+      );
+    }
+    return evaluateIsolatedTwinScenario(
+      baselineParams,
+      {
         presetId: 'CURRENT',
         label: 'Current State (Baseline)',
         durationMinutes: 60,
         drainageBlockageDeltaPct: 0,
-      }),
-    [baselineParams]
-  );
+      },
+      injectedObservations,
+      baselineRoads
+    );
+  }, [
+    baselineParams,
+    baselineCells,
+    baselineRoads,
+    baselineShelters,
+    baselineRoutes,
+    injectedObservations,
+  ]);
 
   // 2. Isolated Active Scenario Snapshot (SIMULATED / scenario-ID)
   const activeScenario: IsolatedTwinSnapshot = useMemo(() => {
     const presetMeta =
       TWIN_PRESET_OPTIONS.find((p) => p.id === activePreset) ??
       TWIN_PRESET_OPTIONS[2];
-    return evaluateIsolatedTwinScenario(baselineParams, {
-      presetId: activePreset,
-      label: presetMeta.label,
-      durationMinutes,
-      customRainfallMmHr: customRainMmHr,
-      drainageBlockageDeltaPct: blockageBonusPct,
-    });
+    return evaluateIsolatedTwinScenario(
+      baselineParams,
+      {
+        presetId: activePreset,
+        label: presetMeta.label,
+        durationMinutes,
+        customRainfallMmHr: customRainMmHr,
+        drainageBlockageDeltaPct: blockageBonusPct,
+      },
+      injectedObservations,
+      baselineRoads
+    );
   }, [
     baselineParams,
     activePreset,
     durationMinutes,
     customRainMmHr,
     blockageBonusPct,
+    injectedObservations,
+    baselineRoads,
   ]);
 
   // 3. Comparison Scenario B Snapshot for Comparison Matrix
@@ -121,19 +165,26 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
     const presetMeta =
       TWIN_PRESET_OPTIONS.find((p) => p.id === comparePresetB) ??
       TWIN_PRESET_OPTIONS[4];
-    return evaluateIsolatedTwinScenario(baselineParams, {
-      presetId: comparePresetB,
-      label: presetMeta.label,
-      durationMinutes,
-      customRainfallMmHr: Math.min(110, customRainMmHr + 18),
-      drainageBlockageDeltaPct: blockageBonusPct + 10,
-    });
+    return evaluateIsolatedTwinScenario(
+      baselineParams,
+      {
+        presetId: comparePresetB,
+        label: presetMeta.label,
+        durationMinutes,
+        customRainfallMmHr: Math.min(110, customRainMmHr + 18),
+        drainageBlockageDeltaPct: blockageBonusPct + 10,
+      },
+      injectedObservations,
+      baselineRoads
+    );
   }, [
     baselineParams,
     comparePresetB,
     durationMinutes,
     customRainMmHr,
     blockageBonusPct,
+    injectedObservations,
+    baselineRoads,
   ]);
 
   // Animate across 30m -> 60m -> 90m -> 120m when "Animate Before -> After" is active
@@ -148,31 +199,31 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
     return () => window.clearInterval(timer);
   }, [isAnimatingHorizon]);
 
-  // Deltas between Active Scenario and Current State
+  // Deltas between Active Scenario and Current State (strictly guarded against NaN / undefined)
   const deltaHighRiskCells =
-    activeScenario.metrics.highAndCriticalCellsCount -
-    currentSnapshot.metrics.highAndCriticalCellsCount;
-  const deltaAreaKm2 = Number(
-    (
-      activeScenario.metrics.affectedAreaKm2 -
-      currentSnapshot.metrics.affectedAreaKm2
-    ).toFixed(2)
-  );
+    (activeScenario.metrics.highAndCriticalCellsCount ?? 0) -
+    (currentSnapshot.metrics.highAndCriticalCellsCount ?? 0);
+  const rawDeltaArea =
+    (activeScenario.metrics.affectedAreaKm2 ?? 0) -
+    (currentSnapshot.metrics.affectedAreaKm2 ?? 0);
+  const deltaAreaKm2 = Number.isFinite(rawDeltaArea)
+    ? Number(rawDeltaArea.toFixed(2))
+    : 0;
   const deltaAtRiskRoads =
-    activeScenario.metrics.atRiskRoadsCount -
-    currentSnapshot.metrics.atRiskRoadsCount;
+    (activeScenario.metrics.atRiskRoadsCount ?? 0) -
+    (currentSnapshot.metrics.atRiskRoadsCount ?? 0);
   const deltaClosedRoads =
-    activeScenario.metrics.closedRoadsCount -
-    currentSnapshot.metrics.closedRoadsCount;
+    (activeScenario.metrics.closedRoadsCount ?? 0) -
+    (currentSnapshot.metrics.closedRoadsCount ?? 0);
   const deltaExposedAssets =
-    activeScenario.metrics.exposedAssetsCount -
-    currentSnapshot.metrics.exposedAssetsCount;
+    (activeScenario.metrics.exposedAssetsCount ?? 0) -
+    (currentSnapshot.metrics.exposedAssetsCount ?? 0);
   const deltaShelterDemand =
-    activeScenario.metrics.shelterDemandBerths -
-    currentSnapshot.metrics.shelterDemandBerths;
+    (activeScenario.metrics.shelterDemandBerths ?? 0) -
+    (currentSnapshot.metrics.shelterDemandBerths ?? 0);
   const deltaPopProxy =
-    activeScenario.metrics.estimatedAffectedPopProxy -
-    currentSnapshot.metrics.estimatedAffectedPopProxy;
+    (activeScenario.metrics.estimatedAffectedPopProxy ?? 0) -
+    (currentSnapshot.metrics.estimatedAffectedPopProxy ?? 0);
 
   // Identify newly transitioned cells and roads for visual emphasis
   const currentCellMap = useMemo(
@@ -188,10 +239,11 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   const inspectedCellId =
     selectedTarget.type === 'CELL' ? selectedTarget.id : 'CELL-R2C2';
   const baseInspectedCell =
-    currentCellMap.get(inspectedCellId) ?? currentSnapshot.cells[18];
+    currentCellMap.get(inspectedCellId) ?? currentSnapshot.cells[18] ?? currentSnapshot.cells[0];
   const scenInspectedCell =
     activeScenario.cells.find((c) => c.id === inspectedCellId) ??
-    activeScenario.cells[18];
+    activeScenario.cells[18] ??
+    activeScenario.cells[0];
 
   const renderMiniTwinMap = (
     snapshot: IsolatedTwinSnapshot,
@@ -422,13 +474,16 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
               const f = nodeMap.get(road.fromNodeId);
               const t = nodeMap.get(road.toNodeId);
               if (!f || !t) return null;
-              const statusMeta = ROAD_STATUS_META[road.currentState];
+              const statusMeta =
+                ROAD_STATUS_META[road.currentState] ?? ROAD_STATUS_META[RoadStatus.OPEN];
               const baseRoad = currentRoadMap.get(road.id);
-              const newlyClosed =
-                isScenarioPane &&
-                baseRoad &&
-                baseRoad.currentState !== RoadStatus.CLOSED_INUNDATED &&
+              const wasClosedInBase =
+                baseRoad?.currentState === RoadStatus.CLOSED ||
+                baseRoad?.currentState === RoadStatus.CLOSED_INUNDATED;
+              const isClosedNow =
+                road.currentState === RoadStatus.CLOSED ||
                 road.currentState === RoadStatus.CLOSED_INUNDATED;
+              const newlyClosed = isScenarioPane && !wasClosedInBase && isClosedNow;
 
               return (
                 <g

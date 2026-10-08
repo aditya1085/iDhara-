@@ -6,6 +6,7 @@ import {
   EvacuationPlanItem,
   FloodRiskCell,
   FloodSeverity,
+  InjectedObservationState,
   OperationalStep,
   ProductMode,
   RoadSegmentState,
@@ -118,10 +119,14 @@ export const OPERATIONAL_CHAIN: Array<{
 /**
  * Evaluates a completely isolated "What-If" scenario snapshot without mutating the LIVE / Current state.
  * Stamps every entity with `mode: ProductMode.SIMULATED` and `scope_id: SIMULATED / scenario-ID`.
+ * Respects active official road overrides and baseline road closures so the simulation builds
+ * consistently upon the authoritative prototype state.
  */
 export function evaluateIsolatedTwinScenario(
   baseParams: ScenarioParameters,
-  config: TwinScenarioConfig
+  config: TwinScenarioConfig,
+  injectedObservations?: InjectedObservationState,
+  baselineRoads?: RoadSegmentState[]
 ): IsolatedTwinSnapshot {
   const presetMeta =
     TWIN_PRESET_OPTIONS.find((p) => p.id === config.presetId) ??
@@ -182,9 +187,34 @@ export function evaluateIsolatedTwinScenario(
           ),
   };
 
-  const rawSensors: SensorNode[] = ingestSensorTelemetry(isolatedParams);
-  const rawCells = predictFloodRiskGrid(isolatedParams, rawSensors);
-  const rawRoads = evaluateRoadNetworkState(rawCells, rawSensors, isolatedParams);
+  const rawSensors: SensorNode[] = ingestSensorTelemetry(isolatedParams, injectedObservations);
+  const rawCells = predictFloodRiskGrid(isolatedParams, rawSensors, undefined, 3, injectedObservations);
+  let rawRoads = evaluateRoadNetworkState(rawCells, rawSensors, isolatedParams, injectedObservations);
+
+  // Inherit existing closed roads from baseline so RD-05 remains CLOSED in simulated scenarios
+  if (baselineRoads && baselineRoads.length > 0) {
+    const closedInBaseline = new Set(
+      baselineRoads
+        .filter(
+          (r) =>
+            r.currentState === RoadStatus.CLOSED ||
+            r.currentState === RoadStatus.CLOSED_INUNDATED
+        )
+        .map((r) => r.id)
+    );
+    rawRoads = rawRoads.map((r) => {
+      if (closedInBaseline.has(r.id) && r.currentState !== RoadStatus.CLOSED && r.currentState !== RoadStatus.CLOSED_INUNDATED) {
+        return {
+          ...r,
+          currentState: RoadStatus.CLOSED,
+          rawState: RoadStatus.CLOSED,
+          transitionReason: 'Inherited official baseline road closure into scenario simulation.',
+        };
+      }
+      return r;
+    });
+  }
+
   const { shelters: rawShelters, evacuationPlans: rawEvac } =
     evaluateSheltersAndEvacuation(rawCells, isolatedParams, rawRoads);
   const rawRoutes = computeRouteRecommendations(rawRoads, isolatedParams);
@@ -227,12 +257,17 @@ export function evaluateIsolatedTwinScenario(
 
   const atRiskRoads = roads.filter(
     (r) =>
+      r.currentState === RoadStatus.CLOSED ||
       r.currentState === RoadStatus.CLOSED_INUNDATED ||
+      r.currentState === RoadStatus.LIKELY_FLOODED ||
       r.currentState === RoadStatus.RESTRICTED_SHALLOW ||
+      r.currentState === RoadStatus.AT_RISK ||
       r.currentState === RoadStatus.CAUTION_WATERLOGGING
   );
   const closedRoads = roads.filter(
-    (r) => r.currentState === RoadStatus.CLOSED_INUNDATED
+    (r) =>
+      r.currentState === RoadStatus.CLOSED ||
+      r.currentState === RoadStatus.CLOSED_INUNDATED
   );
 
   const cellMap = new Map(cells.map((c) => [c.id, c]));
@@ -261,7 +296,7 @@ export function evaluateIsolatedTwinScenario(
   ).length;
 
   const meanFloodProbabilityPct = Math.round(
-    (cells.reduce((acc, c) => acc + c.floodProbability, 0) / cells.length) * 100
+    (cells.reduce((acc, c) => acc + c.floodProbability, 0) / Math.max(1, cells.length)) * 100
   );
 
   let recommendedPreparedness =
@@ -305,6 +340,127 @@ export function evaluateIsolatedTwinScenario(
     scenarioRainfallMmHr: rawScenarioRain,
     rainfallDeltaMmHr,
     rainfallDeltaPct,
+    cells,
+    roads,
+    shelters,
+    evacuationPlans,
+    routes,
+    metrics: {
+      highAndCriticalCellsCount: highAndCritCells.length,
+      criticalCellsCount: critCells.length,
+      affectedAreaKm2,
+      atRiskRoadsCount: atRiskRoads.length,
+      closedRoadsCount: closedRoads.length,
+      exposedAssets,
+      exposedAssetsCount: exposedAssets.length,
+      estimatedAffectedPopProxy,
+      shelterDemandBerths,
+      sheltersNearCapacityCount,
+      meanFloodProbabilityPct,
+      recommendedPreparedness,
+    },
+  };
+}
+
+/**
+ * Builds the authoritative Current State (Baseline) snapshot directly using the shared
+ * road, sensor, shelter, rainfall, and risk-cell objects.
+ * Guarantees zero divergence between Risk Map, Roads & Routing, Evacuation, Alerts, Validation,
+ * and Disaster Twin baseline.
+ */
+export function buildCurrentTwinSnapshot(
+  params: ScenarioParameters,
+  cells: FloodRiskCell[],
+  roads: RoadSegmentState[],
+  shelters: Shelter[],
+  evacuationPlans: EvacuationPlanItem[],
+  routes: RouteRecommendation[]
+): IsolatedTwinSnapshot {
+  const highAndCritCells = cells.filter(
+    (c) =>
+      c.severity === FloodSeverity.CRITICAL || c.severity === FloodSeverity.HIGH
+  );
+  const critCells = cells.filter((c) => c.severity === FloodSeverity.CRITICAL);
+  const affectedAreaKm2 = Number((highAndCritCells.length * 0.390625).toFixed(2));
+
+  const atRiskRoads = roads.filter(
+    (r) =>
+      r.currentState === RoadStatus.CLOSED ||
+      r.currentState === RoadStatus.CLOSED_INUNDATED ||
+      r.currentState === RoadStatus.LIKELY_FLOODED ||
+      r.currentState === RoadStatus.RESTRICTED_SHALLOW ||
+      r.currentState === RoadStatus.AT_RISK ||
+      r.currentState === RoadStatus.CAUTION_WATERLOGGING
+  );
+  const closedRoads = roads.filter(
+    (r) =>
+      r.currentState === RoadStatus.CLOSED ||
+      r.currentState === RoadStatus.CLOSED_INUNDATED
+  );
+
+  const cellMap = new Map(cells.map((c) => [c.id, c]));
+  const exposedAssets = CRITICAL_ASSETS.filter((asset) => {
+    const hostCell = cellMap.get(asset.cellId);
+    return (
+      hostCell &&
+      (hostCell.severity === FloodSeverity.CRITICAL ||
+        hostCell.severity === FloodSeverity.HIGH ||
+        hostCell.floodProbability >= 0.42)
+    );
+  });
+
+  const estimatedAffectedPopProxy = highAndCritCells.reduce((sum, c) => {
+    const factor = c.severity === FloodSeverity.CRITICAL ? 0.085 : 0.04;
+    return sum + Math.round(c.populationEstimate * factor);
+  }, 0);
+
+  const shelterDemandBerths = shelters.reduce(
+    (sum, s) => sum + s.currentOccupancy,
+    0
+  );
+  const sheltersNearCapacityCount = shelters.filter(
+    (s) => s.currentOccupancy / Math.max(1, s.totalCapacity) >= 0.75
+  ).length;
+
+  const meanFloodProbabilityPct = Math.round(
+    (cells.reduce((acc, c) => acc + c.floodProbability, 0) / Math.max(1, cells.length)) * 100
+  );
+
+  let recommendedPreparedness =
+    'Level 1 Routine Watch — Monitor low-lying gauges under current assumption';
+  if (critCells.length >= 10 || closedRoads.length >= 6) {
+    recommendedPreparedness =
+      'Level 4 Full Emergency Mobilization — Pre-barricade bridges, stage SDRF boats & open all 4 relief shelters';
+  } else if (critCells.length >= 5 || closedRoads.length >= 3) {
+    recommendedPreparedness =
+      'Level 3 High Preparedness — Activate hospital rerouting, deploy mobile pumps & stage evacuation buses';
+  } else if (highAndCritCells.length >= 6) {
+    recommendedPreparedness =
+      'Level 2 Elevated Readiness — Clear culvert trash screens & alert ward nodal officers';
+  }
+
+  const avgConf = Number(
+    (
+      cells.reduce((acc, c) => acc + c.confidence, 0) / Math.max(1, cells.length)
+    ).toFixed(2)
+  );
+  const prov = createProvenance(
+    ProductMode.SIMULATED,
+    avgConf,
+    params.timelineHourOffset
+  );
+
+  return {
+    ...prov,
+    scope_id: 'CURRENT / BASELINE',
+    scenarioId: 'SCEN-CURRENT-60M',
+    presetId: 'CURRENT',
+    presetLabel: 'Current State (Baseline)',
+    durationMinutes: 60,
+    baselineRainfallMmHr: params.rainfallIntensityMmHr,
+    scenarioRainfallMmHr: params.rainfallIntensityMmHr,
+    rainfallDeltaMmHr: 0,
+    rainfallDeltaPct: 0,
     cells,
     roads,
     shelters,

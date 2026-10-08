@@ -1277,7 +1277,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               </span>
             ) : (
               <span className="text-emerald-300 text-[10.5px]">
-                Safe pt: {activeRoute.noRouteInfo?.nearestReachableSafePoint?.nodeName}
+                Safe pt: {activeRoute.noRouteInfo?.nearestReachableSafePoint?.nodeName ?? 'Local high ground'}
               </span>
             )}
           </div>

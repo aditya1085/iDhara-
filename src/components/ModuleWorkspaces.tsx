@@ -563,7 +563,11 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
         )}
 
         {/* ROUTE RESULT: PRIMARY ROUTE + ALTERNATIVE ROUTE OR "NO FEASIBLE ROUTE" */}
-        {activeRouteObj && activeRouteObj.feasible && activeRouteObj.primaryRoute ? (
+        {!activeRouteObj ? (
+          <div className="p-6 bg-[#070A12] border border-slate-800 text-center text-slate-400 font-mono text-xs">
+            No route currently selected. Choose an origin and destination node above to evaluate emergency corridors.
+          </div>
+        ) : activeRouteObj.feasible && activeRouteObj.primaryRoute ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* PRIMARY ROUTE CARD */}
             <div className="p-3.5 bg-cyan-950/25 border border-cyan-400/70 space-y-2.5">
@@ -768,7 +772,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
 
             <div className="p-2.5 bg-[#070A12] border border-rose-500/40 text-xs text-slate-200">
               <strong className="text-rose-300 font-mono">Reason: </strong>
-              {activeRouteObj?.noRouteInfo?.reason}
+              {activeRouteObj.noRouteInfo?.reason ??
+                'All currently available corridors are closed or above the configured safety threshold for this profile.'}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-xs">

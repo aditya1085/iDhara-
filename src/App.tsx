@@ -1488,6 +1488,12 @@ export default function App() {
           {activeTab === 'disaster-twin' ? (
             <DisasterTwinWorkspace
               baselineParams={params}
+              baselineCells={cells}
+              baselineRoads={roads}
+              baselineSensors={sensors}
+              baselineShelters={shelters}
+              baselineRoutes={routes}
+              injectedObservations={injectedObservations}
               selectedTarget={selectedTarget}
               onSelectTarget={setSelectedTarget}
               onSelectStage={handleSelectStage}
