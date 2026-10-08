@@ -104,9 +104,15 @@ export const WarningLevelIndicator: React.FC<{
 }> = ({ level, showDirective = true }) => {
   const meta = WARNING_LEVEL_META[level];
   return (
-    <span className={`inline-flex items-center gap-1.5 font-mono text-xs font-bold ${meta.textColor}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 font-mono text-xs font-bold ${meta.textColor} ${
+        !showDirective
+          ? `px-2 py-0.5 border ${meta.borderColor} ${meta.bgTint}`
+          : ''
+      }`}
+    >
       <span aria-hidden="true">{meta.glyph}</span>
-      <span>{showDirective ? meta.actionTitle : meta.level}</span>
+      <span>{showDirective ? meta.actionTitle : `${meta.level} WARNING`}</span>
     </span>
   );
 };

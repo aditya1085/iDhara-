@@ -1193,16 +1193,32 @@ export default function App() {
   const warnMeta = WARNING_LEVEL_META[overallWarningLevel];
   const activePreset = getPresetById(params.activeEventPresetId);
 
+  const primaryRecommendedAction = useMemo(() => {
+    if (params.stage === DisasterStage.EARLY_WARNING) {
+      return 'Issue early warning for Ward 24 (Krishnapura) · Stage mobile dewatering units at Kahn outfalls';
+    }
+    if (params.stage === DisasterStage.PRE_DISASTER_SCENARIO) {
+      return 'Pre-position barricades at Krishnapura & Chandrabhaga bridges · Dispatch ambulance transit alerts';
+    }
+    if (params.stage === DisasterStage.REAL_TIME_ONGOING) {
+      const closedCount = roads.filter((r) => r.currentState === RoadStatus.CLOSED).length;
+      return closedCount > 0
+        ? `Enforce corridor barricades (${closedCount} closed) · Divert emergency transit via Regal–Palasia`
+        : 'Monitor ultrasonic stage gauges & maintain emergency squad readiness';
+    }
+    return 'Conduct culvert surcharge assessment · Retrain hydraulic threshold with validation data';
+  }, [params.stage, roads]);
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#070A10] text-slate-100 overflow-hidden">
-      {/* 1. TOP COMMAND & STATUS BAR */}
-      <header className="h-11 px-3 bg-[#080C15] border-b border-slate-800 flex items-center justify-between gap-3 text-xs font-mono shrink-0 select-none overflow-x-auto">
-        {/* Left: Nav Toggle & Brand */}
+    <div className="flex flex-col h-screen w-screen bg-[#06090F] text-slate-100 overflow-hidden font-sans">
+      {/* 1. TOP COMMAND & STATUS BAR — EMERGENCY OPERATIONS CENTER TELEMETRY */}
+      <header className="h-12 px-3 bg-[#080D18] border-b border-slate-800 flex items-center justify-between gap-2.5 text-xs font-mono shrink-0 select-none overflow-x-auto">
+        {/* Left: Nav Toggle & Operational Unit */}
         <div className="flex items-center gap-2.5 shrink-0">
           <button
             type="button"
             onClick={() => setIsSidebarOpen((prev) => !prev)}
-            className="p-1 px-1.5 bg-[#0E1524] hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-mono transition-colors"
+            className="p-1.5 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs font-mono transition-colors"
             title="Toggle Left Navigation Rail"
             aria-label="Toggle Navigation Sidebar"
           >
@@ -1210,21 +1226,21 @@ export default function App() {
           </button>
 
           <div className="flex items-center gap-2">
-            <div className="w-2 h-5 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.5)]" />
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-bold tracking-tight text-white font-sans">
-                iDhara
+            <div className="w-1.5 h-5 bg-cyan-400" />
+            <div className="flex flex-col leading-none">
+              <span className="text-sm font-bold tracking-tight text-white font-sans uppercase">
+                iDhara EOC
               </span>
-              <span className="text-[10px] text-cyan-300 font-medium hidden sm:inline">
-                From Prediction to Protection
+              <span className="text-[9.5px] text-cyan-300/80 font-mono font-medium tracking-wide">
+                Urban Emergency Operations
               </span>
             </div>
           </div>
         </div>
 
-        {/* Center: Authoritative Single Status Telemetry */}
+        {/* Center: THE 5 PRIMARY EOC METRICS (LOCATION · RISK · RAINFALL · CONFIDENCE · MODE) */}
         <div className="flex items-center gap-2 text-xs font-mono shrink-0">
-          {/* Mode Selector */}
+          {/* Mode Selector Segmented Control */}
           <div className="flex items-center bg-[#05080E] border border-slate-800 p-0.5">
             {[ProductMode.LIVE, ProductMode.SIMULATED, ProductMode.HISTORICAL, ProductMode.MOCK].map((m) => {
               const active = params.mode === m;
@@ -1239,7 +1255,7 @@ export default function App() {
                       timelineHourOffset: m === ProductMode.LIVE ? 0 : prev.timelineHourOffset,
                     }));
                   }}
-                  className={`px-2 py-0.5 text-[10.5px] font-bold transition-all ${
+                  className={`px-2 py-0.5 text-[10px] font-bold transition-all ${
                     active
                       ? m === ProductMode.LIVE
                         ? 'bg-emerald-500 text-slate-950 font-bold'
@@ -1249,7 +1265,7 @@ export default function App() {
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  {m === ProductMode.SIMULATED ? 'SIMULATED (TWIN)' : m}
+                  {m === ProductMode.SIMULATED ? 'TWIN SIM' : m}
                 </button>
               );
             })}
@@ -1257,42 +1273,36 @@ export default function App() {
 
           <span className="text-slate-700 hidden md:inline">|</span>
 
-          {/* Location Scope */}
-          <span className="text-slate-300 font-semibold hidden sm:inline">
-            Indore Pilot
-          </span>
+          {/* 1. LOCATION */}
+          <div className="eoc-pod hidden sm:inline-flex">
+            <span className="text-slate-400 text-[10px]">LOC:</span>
+            <span className="text-slate-200 font-semibold text-[11px]">Indore Pilot (5×5 km)</span>
+          </div>
 
-          <span className="text-slate-700 hidden md:inline">|</span>
+          {/* 2. RISK */}
+          <div className={`px-2 py-0.5 font-bold text-[11px] ${riskMeta.bgTint} ${riskMeta.textColor} border ${riskMeta.borderColor} flex items-center gap-1`}>
+            <span>{riskMeta.glyph}</span>
+            <span>{overallPilotRisk} RISK</span>
+          </div>
 
-          {/* Risk Badge */}
-          <span className={`px-2 py-0.5 font-bold text-[10.5px] ${riskMeta.bgTint} ${riskMeta.textColor} border ${riskMeta.borderColor}`}>
-            {overallPilotRisk} RISK
-          </span>
+          {/* 3. RAINFALL */}
+          <div className="eoc-pod">
+            <span className="text-slate-400 text-[10px]">RAIN:</span>
+            <span className="text-sky-300 font-bold tabular-nums text-[11.5px]">{params.rainfallIntensityMmHr} mm/h</span>
+          </div>
 
-          <span className="text-slate-700 hidden md:inline">|</span>
-
-          {/* Rainfall */}
-          <span className="tabular-nums">
-            <span className="text-slate-400">Rain: </span>
-            <span className="text-sky-300 font-semibold">{params.rainfallIntensityMmHr} mm/h</span>
-          </span>
-
-          <span className="text-slate-700 hidden md:inline">|</span>
-
-          {/* Data Confidence */}
-          <span className="tabular-nums hidden sm:inline">
-            <span className="text-slate-400">Conf: </span>
-            <span className="text-cyan-300 font-semibold">{Math.round(dataHealthReport.confidence * 100)}%</span>
-          </span>
-
-          <span className="text-slate-700 hidden lg:inline">|</span>
+          {/* 4. CONFIDENCE */}
+          <div className="eoc-pod hidden sm:inline-flex">
+            <span className="text-slate-400 text-[10px]">CONF:</span>
+            <span className="text-cyan-300 font-bold tabular-nums text-[11.5px]">{Math.round(dataHealthReport.confidence * 100)}%</span>
+          </div>
 
           {/* System Health */}
           <button
             type="button"
             onClick={() => setActiveTab('data-health')}
-            className="hidden lg:flex items-center gap-1 text-[10.5px] hover:underline"
-            title="Inspect Data Health"
+            className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 bg-[#070C16] border border-slate-800 text-[10.5px] hover:border-slate-700 transition-colors"
+            title="Inspect Data Health & System Integrity"
           >
             <span className={dataHealthReport.overallHealthPct >= 85 ? 'text-emerald-400 font-semibold' : 'text-amber-400 font-semibold'}>
               ● {dataHealthReport.overallHealthPct >= 85 ? 'NOMINAL' : 'DEGRADED'} ({dataHealthReport.overallHealthPct}%)
@@ -1305,7 +1315,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setShowDemoGuide(true)}
-            className="px-2 py-1 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/70 text-cyan-200 text-[11px] font-bold whitespace-nowrap transition-colors"
+            className="px-2.5 py-1 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/70 text-cyan-200 text-[11px] font-bold whitespace-nowrap transition-colors"
             title="Open 26-step verification walkthrough for iDhara demo"
           >
             ⚡ Demo Path
@@ -1316,7 +1326,7 @@ export default function App() {
             aria-label="Operator Role Perspective"
             value={activeRole}
             onChange={(e) => setActiveRole(e.target.value as UserRole)}
-            className="bg-[#0D1320] border border-slate-700 text-slate-200 px-1.5 py-1 text-[11px] font-mono hidden xl:inline-block"
+            className="bg-[#0D1422] border border-slate-700 text-slate-200 px-2 py-1 text-[11px] font-mono hidden xl:inline-block"
           >
             {Object.values(UserRole).map((role) => (
               <option key={role} value={role}>{role}</option>
@@ -1326,7 +1336,7 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsInspectorOpen((prev) => !prev)}
-            className={`px-2 py-1 border text-[11px] font-mono transition-colors whitespace-nowrap ${
+            className={`px-2.5 py-1 border text-[11px] font-mono transition-colors whitespace-nowrap ${
               isInspectorOpen
                 ? 'bg-slate-800 border-slate-600 text-slate-200'
                 : 'bg-[#0E1524] border-slate-800 text-slate-400 hover:text-white'
@@ -1334,28 +1344,31 @@ export default function App() {
             title="Toggle Right Intelligence Inspector"
             aria-label="Toggle Inspector Panel"
           >
-            {isInspectorOpen ? '▶ Panel' : '◀ Panel'}
+            {isInspectorOpen ? '▶ Inspector' : '◀ Inspector'}
           </button>
         </div>
       </header>
 
-      {/* SUB-HEADER: SINGLE COMPACT AUTHORITATIVE DISCLOSURE RIBBON (Height 24px) */}
-      <div className={`h-6 px-3 border-b ${modeMeta.borderClass} ${modeMeta.bgClass} flex items-center justify-between text-[10.5px] font-mono shrink-0 select-none overflow-hidden`}>
-        <div className="flex items-center gap-2 truncate">
-          <span className={`font-bold ${modeMeta.accentText} truncate`}>
-            {modeMeta.indicatorSymbol} {params.mode === ProductMode.SIMULATED ? 'SIMULATED / TWIN (PROTOTYPE SIMULATION)' : `${params.mode} ACTIVE`}
-          </span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-300 truncate">
-            Scope: {PILOT_SCOPE_ID}
+      {/* SUB-HEADER: EOC SITUATIONAL DIRECTIVE & STAGE RIBBON (Height 26px) */}
+      <div className={`h-6.5 px-3 border-b ${modeMeta.borderClass} ${modeMeta.bgClass} flex items-center justify-between text-[11px] font-mono shrink-0 select-none overflow-hidden`}>
+        <div className="flex items-center gap-2.5 truncate">
+          <span className={`font-bold ${modeMeta.accentText} truncate flex items-center gap-1`}>
+            <span>{modeMeta.indicatorSymbol}</span>
+            <span>{params.mode === ProductMode.SIMULATED ? 'SIMULATED (TWIN)' : params.mode}</span>
           </span>
           <span className="text-slate-600">·</span>
           <span className="text-cyan-300 font-semibold truncate">
-            Disaster Twin: {DISASTER_STAGE_INFO[params.stage]?.label ?? params.stage}
+            Stage: {DISASTER_STAGE_INFO[params.stage]?.label ?? params.stage}
           </span>
+          <span className="text-slate-600 hidden md:inline">·</span>
+          {/* 5. RECOMMENDED ACTION (IMMEDIATELY VISIBLE ON SCREEN!) */}
+          <div className="hidden md:flex items-center gap-1.5 truncate">
+            <span className="text-amber-400 font-bold">DIRECTIVE:</span>
+            <span className="text-amber-200 truncate">{primaryRecommendedAction}</span>
+          </div>
         </div>
-        <div className="text-slate-400 shrink-0 text-[10px] hidden sm:block">
-          Indore 5×5 km Pilot Zone
+        <div className="text-slate-400 shrink-0 text-[10.5px] hidden sm:block tabular-nums">
+          Scope: {PILOT_SCOPE_ID} · 64 Cells · 18 Corridors
         </div>
       </div>
 
@@ -1365,12 +1378,12 @@ export default function App() {
         {isSidebarOpen && (
           <nav
             aria-label="Primary Control Room Navigation"
-            className="w-44 lg:w-48 xl:w-52 shrink-0 bg-[#090D16] border-r border-slate-800/90 flex flex-col justify-between overflow-y-auto select-none"
+            className="w-48 lg:w-52 shrink-0 bg-[#080D18] border-r border-slate-800 flex flex-col justify-between overflow-y-auto select-none"
           >
             <div className="p-2 space-y-1">
-              <div className="px-2 py-1 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
-                <span>NAVIGATION</span>
-                <span className="text-[8.5px] text-slate-500">9 VIEWS</span>
+              <div className="px-2.5 py-1.5 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
+                <span>OPERATIONAL VIEWS</span>
+                <span className="text-[9px] text-slate-500 font-normal">9 MODULES</span>
               </div>
               {NAV_ITEMS.map((item) => {
                 const isActive = activeTab === item.id;
@@ -1385,13 +1398,13 @@ export default function App() {
                     onClick={() => handleNavigateTab(item.id)}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
                       isActive
-                        ? 'bg-cyan-950/80 text-cyan-200 border-l-2 border-cyan-400 font-bold shadow-xs'
+                        ? 'bg-cyan-950/60 text-cyan-200 border-l-2 border-cyan-400 font-semibold'
                         : 'text-slate-300 hover:bg-slate-900/80 hover:text-white'
                     }`}
                   >
                     <span>{item.label}</span>
                     {unackCount > 0 && (
-                      <span className="font-mono text-[10px] text-amber-300 font-bold px-1.5 py-0.2 bg-amber-950/60 border border-amber-800/60 rounded-xs">
+                      <span className="font-mono text-[10px] text-amber-300 font-bold px-1.5 py-0.2 bg-amber-950/60 border border-amber-800/60">
                         {unackCount}
                       </span>
                     )}
@@ -1401,9 +1414,9 @@ export default function App() {
 
               {/* Authoritative Four-Stage Disaster Twin State Machine */}
               <div className="pt-2 mt-2 border-t border-slate-800/80">
-                <div className="px-2 py-1 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
-                  <span>DISASTER TWIN STAGE</span>
-                  <span className="text-[8.5px] text-emerald-400">● SYNCED</span>
+                <div className="px-2.5 py-1.5 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
+                  <span>TWIN STAGE</span>
+                  <span className="text-[9px] text-emerald-400">● SYNCED</span>
                 </div>
                 {(
                   [
@@ -1421,7 +1434,7 @@ export default function App() {
                       onClick={() => handleSelectStage(item.st)}
                       className={`w-full text-left px-2.5 py-1 font-mono text-[11px] transition-colors whitespace-nowrap flex items-center gap-1.5 ${
                         active
-                          ? 'text-cyan-300 font-bold bg-cyan-950/70 border-l-2 border-cyan-400'
+                          ? 'text-cyan-300 font-bold bg-cyan-950/60 border-l-2 border-cyan-400'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
@@ -1433,9 +1446,9 @@ export default function App() {
               </div>
             </div>
 
-            <div className="p-2 border-t border-slate-800/80 bg-[#070B12] font-mono text-[10px] text-slate-400 space-y-0.5">
-              <div className="text-slate-200 font-semibold">Indore Pilot (5×5 km)</div>
-              <div className="text-slate-400 text-[9.5px]">Predict · Reroute · Protect</div>
+            <div className="p-2.5 border-t border-slate-800 bg-[#060A12] font-mono text-[10.5px] text-slate-400 space-y-0.5">
+              <div className="text-slate-200 font-semibold">Indore Pilot 5×5 km</div>
+              <div className="text-slate-400 text-[10px]">Flood Prediction & Twin</div>
             </div>
           </nav>
         )}

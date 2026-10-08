@@ -243,7 +243,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           <button
             type="button"
             onClick={handleResetPilotOverview}
-            className="px-2 py-1 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
+            className="px-2.5 py-1 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
             title="Reset viewport to full 5km × 5km Indore Pilot Overview"
           >
             ⌖ Overview
@@ -259,9 +259,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 key={opt.id}
                 type="button"
                 onClick={() => setMetricOverlay(opt.id)}
-                className={`px-2 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+                className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
                   active
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 font-semibold'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
