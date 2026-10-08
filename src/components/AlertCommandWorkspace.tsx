@@ -265,7 +265,7 @@ export const AlertCommandWorkspace: React.FC<AlertCommandWorkspaceProps> = ({
   );
 
   return (
-    <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[62vh] overflow-y-auto">
+    <div className="flex-1 min-h-0 p-4 bg-[#080C14] space-y-4 overflow-y-auto">
       {/* Top Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div>

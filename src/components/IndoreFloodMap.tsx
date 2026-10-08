@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CRITICAL_ASSETS,
   DRAINAGE_PROXIES,
@@ -81,6 +81,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
   const [isRouteErrorDismissed, setIsRouteErrorDismissed] = useState<boolean>(false);
+  const [isLegendCollapsed, setIsLegendCollapsed] = useState<boolean>(false);
 
   // Reset dismiss state whenever active route changes
   useEffect(() => {
@@ -356,45 +357,16 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
       {/* Main Interactive SVG Geospatial Viewport */}
       <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070D] geospatial-grid-bg">
-        {/* Top-Left Data Honesty HUD Stamp on Map (Unmistakable mode · scope · timestamp · confidence · freshness) */}
-        <div className={`absolute top-2.5 left-2.5 z-10 pointer-events-none flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2.5 py-1 font-mono text-[10.5px] tabular-nums border ${modeMeta.borderClass} ${modeMeta.bgClass}`}>
-          <span className={`font-bold flex items-center gap-1 ${modeMeta.accentText}`}>
-            <span>{modeMeta.indicatorSymbol}</span>
-            <span>MODE: {mode}</span>
-          </span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-300">
-            SCOPE: <strong className="text-white font-semibold">{PILOT_SCOPE_ID}</strong>
-          </span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-300">
-            TS: <strong className="text-slate-100 font-normal">18:42:10 UTC</strong>
-          </span>
-          <span className="text-slate-600">·</span>
-          <span className="text-slate-300">
-            CONF:{' '}
-            <strong className="text-cyan-300 font-semibold">
-              {Math.round(
-                (cells.reduce((acc, c) => acc + c.confidence, 0) / Math.max(1, cells.length)) *
-                  100
-              )}
-              %
-            </strong>
-          </span>
-          <span className="text-slate-600">·</span>
-          <span className="text-emerald-400 font-semibold">
-            FRESHNESS: {sensors.filter((s) => s.freshnessState === 'FRESH').length}/{sensors.length} FRESH
-          </span>
-          <span className="text-slate-600 hidden xl:inline">·</span>
-          <span className="text-slate-400 hidden xl:inline">
-            Prototype — simulated operational data
-          </span>
+        {/* Subtle Pilot Bounds Indicator (Unobtrusive so map cells remain 100% visible) */}
+        <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none px-2.5 py-1 bg-[#060A14]/90 border border-slate-800 text-[10.5px] font-mono text-cyan-300 shadow-sm flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+          <span>Indore Pilot (5×5 km)</span>
         </div>
 
         {/* Top-Right Live Route Subscription / Rerouting Status Banner */}
         {routeUpdateNotification && (
-          <div className="absolute top-3 right-3 z-10 max-w-sm bg-[#160B08] border border-amber-400 px-3 py-2 font-mono text-[11px] shadow-2xl pointer-events-none">
-            <div className="flex items-center justify-between gap-2 text-amber-300 font-bold">
+          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#160B08]/95 border border-amber-400 px-3 py-2 font-mono text-[11px] shadow-2xl">
+            <div className="flex items-center justify-between gap-2 text-amber-300 font-bold border-b border-amber-900/60 pb-1 mb-1">
               <span>⚡ {routeUpdateNotification.bannerTitle}</span>
               <span className="text-[10px] text-amber-200">{routeUpdateNotification.timestamp}</span>
             </div>
@@ -407,8 +379,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           </div>
         )}
 
+        {/* Operational No Feasible Route State (Standardized & Non-disruptive) */}
         {!routeUpdateNotification && activeRoute && !activeRoute.feasible && !isRouteErrorDismissed && (
-          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#180A0D]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
+          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
             <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
@@ -424,9 +397,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               </button>
             </div>
 
-            <div className="text-slate-200 text-xs font-sans mb-1 leading-snug">
-              {activeRoute.travelProfile} routing is currently unavailable between:
-              <div className="font-semibold text-white mt-0.5">
+            <div className="text-slate-200 text-xs font-sans mb-1.5 leading-snug">
+              {activeRoute.travelProfile === 'AMBULANCE' ? 'Ambulance' : activeRoute.travelProfile} routing is currently unavailable between:
+              <div className="font-semibold text-white mt-0.5 font-mono text-[11.5px]">
                 {activeRoute.originName} → {activeRoute.destinationName}
               </div>
             </div>
@@ -435,15 +408,15 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               <strong className="text-rose-300">Reason:</strong> All currently available corridors are closed or above the configured safety threshold.
             </div>
 
-            <div className="text-[10.5px] space-y-0.5 mb-2">
-              <div className="text-amber-300 font-semibold">Recommended action:</div>
+            <div className="text-[10.5px] space-y-0.5 mb-2 font-sans">
+              <div className="text-amber-300 font-semibold font-mono text-[11px]">Recommended action:</div>
               <div className="text-slate-300 pl-1.5 space-y-0.5">
                 <div>• Wait for road-state update</div>
                 <div>• Select another destination</div>
                 {activeRoute.noRouteInfo?.nearestReachableSafePoint && (
                   <div>
-                    • Nearest safe point:{' '}
-                    <strong className="text-emerald-300">
+                    • Nearest reachable safe point:{' '}
+                    <strong className="text-emerald-300 font-mono">
                       {activeRoute.noRouteInfo.nearestReachableSafePoint.nodeName} ({activeRoute.noRouteInfo.nearestReachableSafePoint.elevationM}m MSL)
                     </strong>
                   </div>
@@ -451,31 +424,31 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-rose-900/60">
+            <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-rose-900/60 font-sans">
               <button
                 type="button"
                 onClick={() => {
-                  const targetRoadId = activeRoute.noRouteInfo?.severedRoadIds?.[0] ?? 'RD-05';
+                  const targetRoadId = activeRoute.noRouteInfo?.blockingRoadIds?.[0] ?? 'RD-05';
                   onSelectTarget({ type: 'ROAD', id: targetRoadId });
                 }}
-                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-cyan-300 transition-colors"
+                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10.5px] text-cyan-300 font-mono transition-colors"
               >
                 View affected roads
               </button>
               <button
                 type="button"
                 onClick={() => onSelectTarget({ type: 'ASSET', id: 'AST-HOSP-02' })}
-                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10px] text-slate-300 hover:text-white transition-colors"
+                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10.5px] text-slate-300 hover:text-white font-mono transition-colors"
               >
                 Try another destination
               </button>
             </div>
 
             <details className="mt-1.5 text-[9.5px] text-slate-400">
-              <summary className="cursor-pointer hover:text-slate-200">
+              <summary className="cursor-pointer hover:text-slate-200 font-mono">
                 Technical Details (Corridor Diagnostics)
               </summary>
-              <div className="mt-1 p-1 bg-black/60 border border-slate-800 text-slate-300 font-mono break-words leading-tight max-h-24 overflow-y-auto">
+              <div className="mt-1 p-1.5 bg-black/70 border border-slate-800 text-slate-300 font-mono break-words leading-tight max-h-24 overflow-y-auto">
                 {activeRoute.noRouteInfo?.reason}
               </div>
             </details>
@@ -1448,79 +1421,104 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         </svg>
 
         {/* Floating Bottom-Left Clean Context-Aware Legend */}
-        <div className="absolute bottom-3 left-3 bg-[#090D16]/95 border border-slate-800 px-3 py-2 text-[11px] font-mono text-slate-300 pointer-events-none max-w-lg">
-          <div className="text-[10px] text-slate-400 mb-1 font-semibold">
-            {metricOverlay === 'FLOOD_PROBABILITY' && 'FLOOD PROBABILITY & WARNING LEVEL LEGEND'}
-            {metricOverlay === 'SEVERITY' && 'MULTI-MODAL FLOOD SEVERITY LEGEND (COLOR + GLYPH + PATTERN)'}
-            {metricOverlay === 'UNCERTAINTY' && 'PREDICTION UNCERTAINTY SPREAD LEGEND (±PROBABILITY)'}
-            {metricOverlay === 'DATA_CONFIDENCE' && 'CELL DATA CONFIDENCE & TELEMETRY FRESHNESS LEGEND'}
-            {metricOverlay === 'RAINFALL' && 'SPATIAL RAINFALL ACCUMULATION LEGEND (1H / 3H MM)'}
+        {isLegendCollapsed ? (
+          <div className="absolute bottom-3 left-3 z-10">
+            <button
+              type="button"
+              onClick={() => setIsLegendCollapsed(false)}
+              className="px-2.5 py-1 bg-[#090D16]/90 hover:bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10.5px] shadow-lg flex items-center gap-1.5 transition-colors"
+              title="Expand Map Legend"
+            >
+              <span>▤</span>
+              <span>Legend</span>
+            </button>
           </div>
+        ) : (
+          <div className="absolute bottom-3 left-3 z-10 bg-[#090D16]/95 border border-slate-800 px-3 py-2 text-[11px] font-mono text-slate-300 max-w-sm sm:max-w-md shadow-xl">
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1 font-semibold pb-1 border-b border-slate-800">
+              <span className="truncate mr-2">
+                {metricOverlay === 'FLOOD_PROBABILITY' && 'FLOOD PROBABILITY & WARNING LEVEL'}
+                {metricOverlay === 'SEVERITY' && 'MULTI-MODAL FLOOD SEVERITY'}
+                {metricOverlay === 'UNCERTAINTY' && 'UNCERTAINTY SPREAD'}
+                {metricOverlay === 'DATA_CONFIDENCE' && 'DATA CONFIDENCE & FRESHNESS'}
+                {metricOverlay === 'RAINFALL' && 'SPATIAL RAINFALL ACCUMULATION'}
+                {metricOverlay === 'PREDICTED_VS_OBSERVED' && 'PREDICTED VS OBSERVED'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsLegendCollapsed(true)}
+                className="text-slate-400 hover:text-white px-1 text-[10px] whitespace-nowrap cursor-pointer"
+                title="Minimize Legend"
+              >
+                − Minimize
+              </button>
+            </div>
 
-          {(metricOverlay === 'FLOOD_PROBABILITY' || metricOverlay === 'SEVERITY') && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-1.5">
-              <div className="flex items-center gap-1 text-rose-400">
-                <span>✖ RED / CRIT</span>
-                <span className="text-[10px] text-slate-400">(≥74%)</span>
+            {(metricOverlay === 'FLOOD_PROBABILITY' || metricOverlay === 'SEVERITY') && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-1.5">
+                <div className="flex items-center gap-1 text-rose-400">
+                  <span>✖ RED / CRIT</span>
+                  <span className="text-[10px] text-slate-400">(≥74%)</span>
+                </div>
+                <div className="flex items-center gap-1 text-amber-400">
+                  <span>▲ ORANGE / HIGH</span>
+                  <span className="text-[10px] text-slate-400">(52–73%)</span>
+                </div>
+                <div className="flex items-center gap-1 text-yellow-300">
+                  <span>◆ YELLOW / MOD</span>
+                  <span className="text-[10px] text-slate-400">(30–51%)</span>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-400">
+                  <span>● GREEN / LOW</span>
+                  <span className="text-[10px] text-slate-400">(&lt;30%)</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1 text-amber-400">
-                <span>▲ ORANGE / HIGH</span>
-                <span className="text-[10px] text-slate-400">(52–73%)</span>
+            )}
+
+            {metricOverlay === 'UNCERTAINTY' && (
+              <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
+                <span className="text-sky-300">● Low Spread (≤±7%)</span>
+                <span className="text-amber-300">▲ Moderate Spread (±8–11%)</span>
+                <span className="text-purple-300">✖ High Epistemic Spread (≥±12%)</span>
               </div>
-              <div className="flex items-center gap-1 text-yellow-300">
-                <span>◆ YELLOW / MOD</span>
-                <span className="text-[10px] text-slate-400">(30–51%)</span>
+            )}
+
+            {metricOverlay === 'DATA_CONFIDENCE' && (
+              <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
+                <span className="text-emerald-300">● High Conf (≥85%)</span>
+                <span className="text-sky-300">◆ Moderate Conf (72–84%)</span>
+                <span className="text-rose-300">▲ Degraded / Stale (&lt;72%)</span>
               </div>
-              <div className="flex items-center gap-1 text-emerald-400">
-                <span>● GREEN / LOW</span>
-                <span className="text-[10px] text-slate-400">(&lt;30%)</span>
+            )}
+
+            {metricOverlay === 'RAINFALL' && (
+              <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
+                <span className="text-sky-200">● Moderate (&lt;35 mm/h)</span>
+                <span className="text-sky-400">◆ Heavy (35–54 mm/h)</span>
+                <span className="text-cyan-300 font-semibold">▲ Cloudburst (≥55 mm/h)</span>
               </div>
-            </div>
-          )}
+            )}
 
-          {metricOverlay === 'UNCERTAINTY' && (
-            <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
-              <span className="text-sky-300">● Low Spread (≤±7%)</span>
-              <span className="text-amber-300">▲ Moderate Spread (±8–11%)</span>
-              <span className="text-purple-300">✖ High Epistemic Spread (≥±12%)</span>
-            </div>
-          )}
+            {metricOverlay === 'PREDICTED_VS_OBSERVED' && (
+              <div className="flex flex-wrap items-center gap-3 mb-1.5 text-[10.5px]">
+                <span className="text-rose-400 font-bold">✖ FALSE NEGATIVE (Missed Flood)</span>
+                <span className="text-emerald-300">● TRUE POSITIVE (Hit)</span>
+                <span className="text-amber-300">▲ FALSE POSITIVE (Over-warned)</span>
+                <span className="text-slate-400">○ TRUE NEGATIVE</span>
+              </div>
+            )}
 
-          {metricOverlay === 'DATA_CONFIDENCE' && (
-            <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
-              <span className="text-emerald-300">● High Conf (≥85%)</span>
-              <span className="text-sky-300">◆ Moderate Conf (72–84%)</span>
-              <span className="text-rose-300">▲ Degraded / Stale (&lt;72%)</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-slate-800/80 pt-1">
+              <span className="text-sky-400">┅┅ 5×5km Pilot</span>
+              <span className="text-orange-300">◌ Iso-Risk</span>
+              <span className="text-cyan-300">━ Route</span>
+              <span className="text-rose-400">┅✖┅ Blocked</span>
+              <span className="text-cyan-300">◉WL / ◉RG Sensors</span>
+              <span className="text-emerald-300">▲S Shelter</span>
+              <span className="text-sky-300">✚ Hospital</span>
             </div>
-          )}
-
-          {metricOverlay === 'RAINFALL' && (
-            <div className="flex items-center gap-4 mb-1.5 text-[10.5px]">
-              <span className="text-sky-200">● Moderate (&lt;35 mm/h)</span>
-              <span className="text-sky-400">◆ Heavy (35–54 mm/h)</span>
-              <span className="text-cyan-300 font-semibold">▲ Cloudburst (≥55 mm/h)</span>
-            </div>
-          )}
-
-          {metricOverlay === 'PREDICTED_VS_OBSERVED' && (
-            <div className="flex flex-wrap items-center gap-3 mb-1.5 text-[10.5px]">
-              <span className="text-rose-400 font-bold">✖ FALSE NEGATIVE (Missed Flood)</span>
-              <span className="text-emerald-300">● TRUE POSITIVE (Hit)</span>
-              <span className="text-amber-300">▲ FALSE POSITIVE (Over-warned)</span>
-              <span className="text-slate-400">○ TRUE NEGATIVE</span>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-slate-800/80 pt-1">
-            <span className="text-sky-400">┅┅ 5×5km Pilot</span>
-            <span className="text-orange-300">◌ Iso-Risk Contours</span>
-            <span className="text-cyan-300">━ Recommended Route</span>
-            <span className="text-rose-400">┅✖┅ Blocked Corridor</span>
-            <span className="text-cyan-300">◉WL / ◉RG Sensors</span>
-            <span className="text-emerald-300">▲S Shelter</span>
-            <span className="text-sky-300">✚ Hospital</span>
           </div>
-        </div>
+        )}
 
         {/* Floating Bottom-Right Scale Bar */}
         <div className="absolute bottom-3 right-3 bg-[#090D16]/95 border border-slate-800 px-3 py-1.5 text-[11px] font-mono text-slate-300 pointer-events-none flex flex-col items-end gap-1">

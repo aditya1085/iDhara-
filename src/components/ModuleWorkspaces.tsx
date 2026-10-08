@@ -358,7 +358,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     const activePolicy = TRAVEL_PROFILE_POLICIES[travelProfile];
 
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[58vh] overflow-y-auto">
+      <div className="flex-1 min-h-0 p-4 bg-[#080C14] space-y-4 overflow-y-auto">
         {/* Top Header + "Demo incident" & "Test No Feasible Route" Buttons */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div>
@@ -1003,7 +1003,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     );
 
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[60vh] overflow-y-auto">
+      <div className="flex-1 min-h-0 p-4 bg-[#080C14] space-y-4 overflow-y-auto">
         {/* Top Bar: Evacuation Mode Status + Trigger Controls + Recalculate Button */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
           <div>
@@ -1687,7 +1687,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     const waterSensorC = sensors.find((s) => s.id === 'SEN-WL-04') ?? sensors[3];
 
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[55vh] overflow-y-auto">
+      <div className="flex-1 min-h-0 p-4 bg-[#080C14] space-y-4 overflow-y-auto">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-mono text-[11px] text-cyan-400">

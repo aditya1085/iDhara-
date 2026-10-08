@@ -67,6 +67,23 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   const [viewMode, setViewMode] = useState<'SPLIT' | 'BEFORE_ONLY' | 'AFTER_ONLY'>('SPLIT');
   const [isAnimatingHorizon, setIsAnimatingHorizon] = useState<boolean>(false);
 
+  // Synchronize scenario parameters with the authoritative Disaster Twin stage
+  useEffect(() => {
+    if (baselineParams.stage === DisasterStage.EARLY_WARNING) {
+      setActivePreset('PLUS_10');
+      setDurationMinutes(30);
+    } else if (baselineParams.stage === DisasterStage.PRE_DISASTER_SCENARIO) {
+      setActivePreset('PLUS_20');
+      setDurationMinutes(60);
+    } else if (baselineParams.stage === DisasterStage.REAL_TIME_ONGOING) {
+      setActivePreset('EXTREME');
+      setDurationMinutes(90);
+    } else if (baselineParams.stage === DisasterStage.POST_DISASTER_LEARNING) {
+      setActivePreset('PLUS_30');
+      setDurationMinutes(120);
+    }
+  }, [baselineParams.stage]);
+
   // 1. Immutable Current / Baseline Snapshot (0% change, 60m reference)
   const currentSnapshot: IsolatedTwinSnapshot = useMemo(
     () =>

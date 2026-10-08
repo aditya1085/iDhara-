@@ -55,18 +55,16 @@ import {
 const NAV_ITEMS: Array<{
   id: NavigationTab;
   label: string;
-  stageTag?: string;
-  shortBadge?: string;
 }> = [
-  { id: 'overview', label: 'Overview', stageTag: '1. PREDICT' },
-  { id: 'risk-map', label: 'Risk Map', stageTag: '2. EXPLAIN' },
-  { id: 'alerts', label: 'Alerts', stageTag: '3. WARN' },
-  { id: 'disaster-twin', label: 'Disaster Twin', stageTag: '4. SIMULATE', shortBadge: '4-Stage' },
-  { id: 'validation', label: 'Validation', stageTag: '5. VERIFY' },
-  { id: 'roads-routing', label: 'Roads & Routing', stageTag: '6. REROUTE' },
-  { id: 'evacuation', label: 'Evacuation', stageTag: '7. EVACUATE' },
-  { id: 'event-replay', label: 'Event Replay', stageTag: '8. LEARN' },
-  { id: 'data-health', label: 'Data Health', stageTag: 'TELEMETRY' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'risk-map', label: 'Risk Map' },
+  { id: 'alerts', label: 'Alerts' },
+  { id: 'disaster-twin', label: 'Disaster Twin' },
+  { id: 'validation', label: 'Validation' },
+  { id: 'roads-routing', label: 'Roads & Routing' },
+  { id: 'evacuation', label: 'Evacuation' },
+  { id: 'event-replay', label: 'Event Replay' },
+  { id: 'data-health', label: 'Data Health' },
 ];
 
 export default function App() {
@@ -1299,7 +1297,7 @@ export default function App() {
           <span className="text-slate-700 hidden md:inline">|</span>
 
           {/* Risk Badge */}
-          <span className={`px-2 py-0.5 font-bold text-[10.5px] ${riskMeta.bgColor} ${riskMeta.textColor} border ${riskMeta.borderColor}`}>
+          <span className={`px-2 py-0.5 font-bold text-[10.5px] ${riskMeta.bgTint} ${riskMeta.textColor} border ${riskMeta.borderColor}`}>
             {overallPilotRisk} RISK
           </span>
 
@@ -1377,7 +1375,7 @@ export default function App() {
       <div className={`h-6 px-3 border-b ${modeMeta.borderClass} ${modeMeta.bgClass} flex items-center justify-between text-[10.5px] font-mono shrink-0 select-none overflow-hidden`}>
         <div className="flex items-center gap-2 truncate">
           <span className={`font-bold ${modeMeta.accentText} truncate`}>
-            {modeMeta.indicatorSymbol} {params.mode === ProductMode.SIMULATED ? 'SIMULATED / TWIN' : params.mode} ACTIVE
+            {modeMeta.indicatorSymbol} {params.mode === ProductMode.SIMULATED ? 'SIMULATED / TWIN (PROTOTYPE SIMULATION)' : `${params.mode} ACTIVE`}
           </span>
           <span className="text-slate-600">·</span>
           <span className="text-slate-300 truncate">
@@ -1385,11 +1383,11 @@ export default function App() {
           </span>
           <span className="text-slate-600">·</span>
           <span className="text-cyan-300 font-semibold truncate">
-            Stage: {DISASTER_STAGE_INFO[params.stage]?.label ?? params.stage}
+            Disaster Twin: {DISASTER_STAGE_INFO[params.stage]?.label ?? params.stage}
           </span>
         </div>
-        <div className="text-slate-400 shrink-0 text-[10px]">
-          Prototype — simulated operational data
+        <div className="text-slate-400 shrink-0 text-[10px] hidden sm:block">
+          Indore 5×5 km Pilot Zone
         </div>
       </div>
 
@@ -1403,8 +1401,8 @@ export default function App() {
           >
             <div className="p-2 space-y-1">
               <div className="px-2 py-1 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
-                <span>OPERATIONAL FLOW</span>
-                <span className="text-[8.5px] text-slate-500">8 PHASES</span>
+                <span>NAVIGATION</span>
+                <span className="text-[8.5px] text-slate-500">9 VIEWS</span>
               </div>
               {NAV_ITEMS.map((item) => {
                 const isActive = activeTab === item.id;
@@ -1417,29 +1415,18 @@ export default function App() {
                     key={item.id}
                     type="button"
                     onClick={() => handleNavigateTab(item.id)}
-                    className={`w-full flex items-center justify-between px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
                       isActive
-                        ? 'bg-cyan-950/70 text-cyan-200 border-l-2 border-cyan-400 font-semibold shadow-xs'
-                        : 'text-slate-300 hover:bg-slate-900 hover:text-white'
+                        ? 'bg-cyan-950/80 text-cyan-200 border-l-2 border-cyan-400 font-bold shadow-xs'
+                        : 'text-slate-300 hover:bg-slate-900/80 hover:text-white'
                     }`}
                   >
-                    <div className="flex flex-col items-start text-left leading-tight">
-                      <span>{item.label}</span>
-                      {item.stageTag && (
-                        <span className="text-[9px] font-mono text-cyan-400/70 tracking-wider">
-                          {item.stageTag}
-                        </span>
-                      )}
-                    </div>
-                    {unackCount > 0 ? (
-                      <span className="font-mono text-[10px] text-amber-300 font-bold px-1 bg-amber-950/60 border border-amber-800/60">
+                    <span>{item.label}</span>
+                    {unackCount > 0 && (
+                      <span className="font-mono text-[10px] text-amber-300 font-bold px-1.5 py-0.2 bg-amber-950/60 border border-amber-800/60 rounded-xs">
                         {unackCount}
                       </span>
-                    ) : item.shortBadge ? (
-                      <span className="font-mono text-[9px] text-slate-400 bg-slate-900 px-1 py-0.5 border border-slate-800">
-                        {item.shortBadge}
-                      </span>
-                    ) : null}
+                    )}
                   </button>
                 );
               })}
@@ -1448,7 +1435,7 @@ export default function App() {
               <div className="pt-2 mt-2 border-t border-slate-800/80">
                 <div className="px-2 py-1 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
                   <span>DISASTER TWIN STAGE</span>
-                  <span className="text-[8.5px] text-slate-500">SYNCED</span>
+                  <span className="text-[8.5px] text-emerald-400">● SYNCED</span>
                 </div>
                 {(
                   [
@@ -1464,9 +1451,9 @@ export default function App() {
                       key={item.st}
                       type="button"
                       onClick={() => handleSelectStage(item.st)}
-                      className={`w-full text-left px-2 py-1 font-mono text-[11px] transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                      className={`w-full text-left px-2.5 py-1 font-mono text-[11px] transition-colors whitespace-nowrap flex items-center gap-1.5 ${
                         active
-                          ? 'text-cyan-300 font-bold bg-cyan-950/60 border-l-2 border-cyan-400'
+                          ? 'text-cyan-300 font-bold bg-cyan-950/70 border-l-2 border-cyan-400'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
@@ -1740,7 +1727,11 @@ export default function App() {
                                 </span>
                               </td>
                               <td className="p-1.5">{r.estimatedWaterDepthCm} cm</td>
-                              <td className="p-1.5">{r.riskPenaltyMultiplier}x</td>
+                              <td className="p-1.5">
+                                {r.riskPenaltyMin === Number.POSITIVE_INFINITY
+                                  ? 'BLOCKED'
+                                  : `+${r.riskPenaltyMin}m`}
+                              </td>
                               <td className="p-1.5">
                                 <button
                                   type="button"
