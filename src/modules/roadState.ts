@@ -1,21 +1,40 @@
 import { BASE_ROAD_SEGMENTS } from '../data/indorePilotData';
 import {
   FloodRiskCell,
+  InjectedObservationState,
   RoadSegmentState,
   RoadStatus,
   ScenarioParameters,
   SensorNode,
 } from '../types/idhara';
-import { createProvenance } from './dataIngestion';
+import {
+  createProvenance,
+  DEFAULT_INJECTED_OBSERVATIONS,
+} from './dataIngestion';
+
+const ROAD_STATE_ORDER: RoadStatus[] = [
+  RoadStatus.OPEN,
+  RoadStatus.AT_RISK,
+  RoadStatus.LIKELY_FLOODED,
+  RoadStatus.CLOSED,
+];
 
 /**
- * Computes real-time/simulated road segment state across the 24 Indore pilot corridors
- * by fusing adjacent cell inundation predictions, low-point elevation, and ultrasonic sensors.
+ * Evaluates the 4-state Road State Machine (OPEN -> AT_RISK -> LIKELY_FLOODED -> CLOSED)
+ * across the 24 Indore pilot corridors by fusing:
+ * 1. Prediction (adjacent cell flood probability & depth)
+ * 2. Water level (ultrasonic sensor reading)
+ * 3. Official closure / reopen directives
+ * 4. Multiple agreeing observations (including crowd reports)
+ * Includes hysteresis to prevent rapid state flipping.
  */
 export function evaluateRoadNetworkState(
   cells: FloodRiskCell[],
   sensors: SensorNode[],
-  params: ScenarioParameters
+  params: ScenarioParameters,
+  injected: InjectedObservationState = DEFAULT_INJECTED_OBSERVATIONS,
+  previousRoadStates?: Map<string, RoadStatus>,
+  stableTicksElapsed: number = 3
 ): RoadSegmentState[] {
   const cellMap = new Map<string, FloodRiskCell>(cells.map((c) => [c.id, c]));
   const sensorMap = new Map<string, SensorNode>(sensors.map((s) => [s.id, s]));
@@ -38,83 +57,198 @@ export function evaluateRoadNetworkState(
       ? sensorMap.get(seg.monitoringSensorId)
       : undefined;
 
-    // Underpasses and river bridges amplify water depth when adjacent cells flood
-    const structureAmplifier = seg.hasUnderpassOrBridge ? 1.15 : 0.92;
-    const floodProbability = Number(
-      Math.min(0.99, maxAdjProb * structureAmplifier).toFixed(2)
-    );
-    const estimatedWaterDepthCm = Math.round(maxAdjDepth * structureAmplifier);
+    const crowdReport = injected.crowdReportsByRoad[seg.id];
+    const officialOverride = injected.officialRoadOverrides[seg.id];
 
-    let currentState: RoadStatus = RoadStatus.OPEN;
-    if (floodProbability >= 0.74 || estimatedWaterDepthCm >= 45) {
-      currentState = RoadStatus.CLOSED_INUNDATED;
-    } else if (floodProbability >= 0.52 || estimatedWaterDepthCm >= 25) {
-      currentState = RoadStatus.RESTRICTED_SHALLOW;
-    } else if (floodProbability >= 0.32 || estimatedWaterDepthCm >= 12) {
-      currentState = RoadStatus.CAUTION_WATERLOGGING;
+    // Boost probability if sensor water level is elevated or crowd reports exist
+    let sensorBoostProb = 0;
+    if (
+      linkedSensor &&
+      linkedSensor.freshnessState !== 'MISSING' &&
+      linkedSensor.currentValue >= linkedSensor.warningThreshold
+    ) {
+      sensorBoostProb =
+        linkedSensor.currentValue >= linkedSensor.criticalThreshold
+          ? 0.24
+          : 0.14;
     }
 
-    // Effective travel time penalty for routing engine
+    const crowdBoostProb = crowdReport ? Math.min(0.22, crowdReport.count * 0.11) : 0;
+    const structureAmplifier = seg.hasUnderpassOrBridge ? 1.12 : 0.94;
+
+    let floodProbability = Number(
+      Math.min(
+        0.99,
+        maxAdjProb * structureAmplifier + sensorBoostProb + crowdBoostProb
+      ).toFixed(2)
+    );
+
+    if (officialOverride === 'OPEN') {
+      floodProbability = Number(Math.min(0.22, floodProbability * 0.4).toFixed(2));
+    } else if (officialOverride === 'CLOSED') {
+      floodProbability = Math.max(0.88, floodProbability);
+    }
+
+    const estimatedWaterDepthCm =
+      officialOverride === 'OPEN'
+        ? Math.min(8, Math.round(maxAdjDepth * 0.25))
+        : Math.round(
+            maxAdjDepth * structureAmplifier +
+              sensorBoostProb * 85 +
+              crowdBoostProb * 60
+          );
+
+    // Count independent agreeing flood observations
+    let agreeingObservationsCount = 0;
+    if (maxAdjProb >= 0.48) agreeingObservationsCount++;
+    if (
+      linkedSensor &&
+      linkedSensor.freshnessState !== 'MISSING' &&
+      linkedSensor.currentValue >= linkedSensor.warningThreshold
+    ) {
+      agreeingObservationsCount++;
+    }
+    if (crowdReport && crowdReport.count > 0) agreeingObservationsCount++;
+    if (officialOverride === 'CLOSED') agreeingObservationsCount += 2;
+
+    // Raw State Machine Evaluation: OPEN | AT_RISK | LIKELY_FLOODED | CLOSED
+    let rawState: RoadStatus = RoadStatus.OPEN;
+    let transitionReason = 'Standard passable flow; below flood thresholds.';
+
+    if (officialOverride === 'CLOSED') {
+      rawState = RoadStatus.CLOSED;
+      transitionReason =
+        'Official Traffic Police / EOC Barricade Closure active.';
+    } else if (officialOverride === 'OPEN') {
+      rawState = RoadStatus.OPEN;
+      transitionReason =
+        'Official field inspection cleared & reopened corridor.';
+    } else if (
+      floodProbability >= 0.74 ||
+      estimatedWaterDepthCm >= 45 ||
+      (agreeingObservationsCount >= 3 && floodProbability >= 0.62)
+    ) {
+      rawState = RoadStatus.CLOSED;
+      transitionReason =
+        agreeingObservationsCount >= 2
+          ? `Multiple agreeing observations (${agreeingObservationsCount} sources) + ${Math.round(
+              floodProbability * 100
+            )}% probability exceed safe axle clearance.`
+          : `Predicted depth (${estimatedWaterDepthCm} cm) & ${Math.round(
+              floodProbability * 100
+            )}% probability trigger automatic closure threshold.`;
+    } else if (
+      floodProbability >= 0.52 ||
+      estimatedWaterDepthCm >= 25 ||
+      agreeingObservationsCount >= 2
+    ) {
+      rawState = RoadStatus.LIKELY_FLOODED;
+      transitionReason =
+        agreeingObservationsCount >= 2
+          ? `Transitioned to LIKELY_FLOODED via ${agreeingObservationsCount} agreeing observations (model + gauge/crowd).`
+          : `High flood probability (${Math.round(
+              floodProbability * 100
+            )}%) and ~${estimatedWaterDepthCm} cm standing water.`;
+    } else if (floodProbability >= 0.30 || estimatedWaterDepthCm >= 12) {
+      rawState = RoadStatus.AT_RISK;
+      transitionReason = `Elevated runoff (${Math.round(
+        floodProbability * 100
+      )}% probability); curb waterlogging risk.`;
+    }
+
+    // Apply Hysteresis to avoid rapid state flipping on de-escalation
+    const prevState = previousRoadStates?.get(seg.id);
+    const rawIdx = ROAD_STATE_ORDER.indexOf(rawState);
+    const prevIdx = prevState ? ROAD_STATE_ORDER.indexOf(prevState) : rawIdx;
+
+    let currentState = rawState;
+    let isHysteresisHeld = false;
+
+    if (
+      officialOverride !== 'OPEN' &&
+      rawIdx < prevIdx &&
+      stableTicksElapsed < 3
+    ) {
+      currentState = ROAD_STATE_ORDER[prevIdx];
+      isHysteresisHeld = true;
+      transitionReason = `Hysteresis Hold: Maintaining ${currentState} (${stableTicksElapsed}/3 stable ticks) to prevent rapid state flipping.`;
+    }
+
+    // Effective travel time penalty for routing graph
     let effectiveTravelTimeMin = seg.baseTravelTimeMin;
-    if (currentState === RoadStatus.CLOSED_INUNDATED) {
+    if (currentState === RoadStatus.CLOSED) {
       effectiveTravelTimeMin = Number.POSITIVE_INFINITY;
-    } else if (currentState === RoadStatus.RESTRICTED_SHALLOW) {
-      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin * 2.4).toFixed(1));
-    } else if (currentState === RoadStatus.CAUTION_WATERLOGGING) {
-      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin * 1.45).toFixed(1));
+    } else if (currentState === RoadStatus.LIKELY_FLOODED) {
+      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin * 2.8).toFixed(1));
+    } else if (currentState === RoadStatus.AT_RISK) {
+      effectiveTravelTimeMin = Number((seg.baseTravelTimeMin * 1.5).toFixed(1));
     }
 
     // Assemble transparent evidence chain
     const evidence: string[] = [];
+    if (officialOverride === 'CLOSED') {
+      evidence.push(
+        'OFFICIAL CLOSURE: Traffic Authority barricade active on segment'
+      );
+    } else if (officialOverride === 'OPEN') {
+      evidence.push(
+        'OFFICIAL CLEARANCE: Field engineering unit verified passable deck & reopened road'
+      );
+    }
+
     const worstCell = [...adjacentCells].sort(
       (a, b) => b.floodProbability - a.floodProbability
     )[0];
     if (worstCell) {
       evidence.push(
-        `Adjacent cell ${worstCell.localityName} (${worstCell.id}) at ${Math.round(
+        `Model Prediction: Adjacent cell ${worstCell.localityName} (${worstCell.id}) at ${Math.round(
           worstCell.floodProbability * 100
-        )}% flood probability (~${worstCell.predictedDepthCm} cm model depth)`
+        )}% probability (~${worstCell.predictedDepthCm} cm depth)`
       );
     }
 
     if (linkedSensor) {
-      if (linkedSensor.status === 'STALE') {
-        evidence.push(
-          `Sensor ${linkedSensor.name} (${linkedSensor.id}) telemetry stale; relying on hydrological-terrain proxy`
-        );
-      } else {
-        evidence.push(
-          `Verified by ${linkedSensor.name}: ${linkedSensor.currentValue} ${linkedSensor.unit} (warn ${linkedSensor.warningThreshold} ${linkedSensor.unit})`
-        );
-      }
-    } else {
       evidence.push(
-        `Low-point deck elevation ${seg.lowPointElevationM}m MSL evaluated against ${params.drainageBlockagePct}% culvert blockage factor`
+        `Sensor ${linkedSensor.id} (${linkedSensor.freshnessState}): ${linkedSensor.currentValue} ${linkedSensor.unit} · seen ${linkedSensor.lastSeenLabel}`
       );
     }
 
-    let routeImpact = 'Normal traffic flow; suitable for all emergency and transit vehicles.';
+    if (crowdReport && crowdReport.count > 0) {
+      evidence.push(
+        `Crowd Report (${crowdReport.count} verified): "${crowdReport.lastReportText}" at ${crowdReport.timestamp}`
+      );
+    }
+
+    let routeImpact =
+      'OPEN: Corridor included in active routing graph for all emergency and transit vehicles.';
     let alternativeSummary = 'Primary corridor operational under current data.';
 
-    if (currentState === RoadStatus.CLOSED_INUNDATED) {
-      routeImpact = `BARRICADED / IMPASSABLE: Estimated ${estimatedWaterDepthCm} cm water depth exceeds safe wading/axle clearance. Excluded from active routing.`;
+    if (currentState === RoadStatus.CLOSED) {
+      routeImpact = `CLOSED: Removed from routing graph (~${estimatedWaterDepthCm} cm depth). Active routes automatically recalculated around this segment.`;
       alternativeSummary =
-        'Reroute via elevated BRTS (Regal–Palasia–Geeta Bhawan) or VIP Sadar Bazaar bypass under current data.';
-    } else if (currentState === RoadStatus.RESTRICTED_SHALLOW) {
-      routeImpact = `RESTRICTED: ${estimatedWaterDepthCm} cm standing water. High-clearance SDRF / emergency trucks only; passenger cars & two-wheelers diverted.`;
+        'Rerouted via elevated BRTS (Regal–Palasia–Geeta Bhawan) or VIP Sadar Bazaar bypass under current data.';
+    } else if (currentState === RoadStatus.LIKELY_FLOODED) {
+      routeImpact = `LIKELY_FLOODED: Heavy routing penalty applied (~${estimatedWaterDepthCm} cm water). Standard vehicles & ambulances diverted; high-clearance SDRF trucks only.`;
       alternativeSummary =
-        'Divert standard traffic to higher-elevation arterial connectors.';
-    } else if (currentState === RoadStatus.CAUTION_WATERLOGGING) {
-      routeImpact = `CAUTION: Curbside sheet ponding (~${estimatedWaterDepthCm} cm). Expect +45% travel time delay.`;
-      alternativeSummary = 'Passable with speed restriction (20 km/h).';
+        'Diverting standard & emergency medical traffic to higher-elevation connectors under current data.';
+    } else if (currentState === RoadStatus.AT_RISK) {
+      routeImpact = `AT_RISK: Moderate routing delay penalty (+50% travel time, ~${estimatedWaterDepthCm} cm sheet ponding).`;
+      alternativeSummary = 'Passable with caution (20 km/h speed limit).';
     }
 
     const avgCellConf =
       adjacentCells.reduce((acc, c) => acc + c.confidence, 0) /
       Math.max(1, adjacentCells.length);
-    const roadConf = linkedSensor && linkedSensor.status !== 'STALE'
-      ? Math.min(0.95, avgCellConf + 0.06)
-      : avgCellConf;
+
+    let roadConf = avgCellConf;
+    if (linkedSensor) {
+      if (linkedSensor.freshnessState === 'FRESH') roadConf = Math.min(0.96, roadConf + 0.07);
+      else if (linkedSensor.freshnessState === 'MISSING') roadConf = Math.max(0.42, roadConf - 0.16);
+      else if (linkedSensor.freshnessState === 'SUSPECT') roadConf = Math.max(0.55, roadConf - 0.10);
+    }
+    if (agreeingObservationsCount >= 2) {
+      roadConf = Math.min(0.96, roadConf + 0.05);
+    }
 
     const prov = createProvenance(params.mode, roadConf, params.timelineHourOffset);
 
@@ -122,13 +256,20 @@ export function evaluateRoadNetworkState(
       ...seg,
       ...prov,
       currentState,
+      rawState,
+      isHysteresisHeld,
+      transitionReason,
+      agreeingObservationsCount,
       floodProbability,
       estimatedWaterDepthCm,
       effectiveTravelTimeMin,
       evidence,
-      lastUpdate: linkedSensor
-        ? `${linkedSensor.lastHeartbeatSecAgo}s ago`
-        : '40s ago (Model Fusion)',
+      lastUpdate:
+        officialOverride || crowdReport
+          ? 'Just now (Live Feed)'
+          : linkedSensor
+          ? linkedSensor.lastSeenLabel
+          : '38 seconds ago',
       routeImpact,
       alternativeSummary,
     };

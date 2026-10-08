@@ -1,13 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CRITICAL_ASSETS } from '../data/indorePilotData';
 import { createProvenance } from '../modules/dataIngestion';
 import { defaultPredictionEngine } from '../modules/prediction';
 import {
+  ActivityFeedEntry,
   AlertItem,
   EvacuationPlanItem,
   FloodRiskCell,
   FloodSeverity,
   NavigationTab,
+  ObservationInjectionType,
   RoadSegmentState,
   RoadStatus,
   RouteRecommendation,
@@ -18,9 +20,11 @@ import {
   WarningLevel,
 } from '../types/idhara';
 import { MapInspectionTarget } from './IndoreFloodMap';
+import { LiveFeedSimulator } from './LiveFeedSimulator';
 import {
   ProvenanceStrip,
   RoadStateIndicator,
+  SENSOR_FRESHNESS_META,
   SeverityIndicator,
   WARNING_LEVEL_META,
   WarningLevelIndicator,
@@ -41,6 +45,9 @@ interface ContextInspectorPanelProps {
   onNavigateTab: (tab: NavigationTab) => void;
   stableTicksElapsed: number;
   onStepStableTick: () => void;
+  activityFeed: ActivityFeedEntry[];
+  onInjectObservation: (type: ObservationInjectionType, targetId: string) => void;
+  onResetObservations: () => void;
 }
 
 export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
@@ -58,11 +65,24 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
   onNavigateTab,
   stableTicksElapsed,
   onStepStableTick,
+  activityFeed,
+  onInjectObservation,
+  onResetObservations,
 }) => {
-  const [panelTab, setPanelTab] = useState<'SITUATION' | 'INSPECTOR'>('SITUATION');
+  const [panelTab, setPanelTab] = useState<'SITUATION' | 'INSPECTOR' | 'LIVE_FEED'>('SITUATION');
   const [expandedWhyIds, setExpandedWhyIds] = useState<Set<string>>(
     new Set(['CARD-PRIMARY'])
   );
+
+  // Automatically open the Inspector tab when the operator clicks a cell, road, sensor, shelter, or asset on the map
+  const isFirstRenderRef = React.useRef(true);
+  useEffect(() => {
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return;
+    }
+    setPanelTab('INSPECTOR');
+  }, [selectedTarget.type, selectedTarget.id]);
 
   const toggleWhyWarning = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -227,27 +247,54 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
           <button
             type="button"
             onClick={() => setPanelTab('SITUATION')}
-            className={`flex-1 py-1.5 px-2.5 text-xs font-mono transition-colors whitespace-nowrap ${
+            className={`flex-1 py-1.5 px-2 text-[11px] font-mono transition-colors whitespace-nowrap ${
               panelTab === 'SITUATION'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Action Cards & Situation
+            Action Cards
           </button>
           <button
             type="button"
             onClick={() => setPanelTab('INSPECTOR')}
-            className={`flex-1 py-1.5 px-2.5 text-xs font-mono transition-colors whitespace-nowrap ${
+            className={`flex-1 py-1.5 px-2 text-[11px] font-mono transition-colors whitespace-nowrap ${
               panelTab === 'INSPECTOR'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Cell / Target Prediction ({selectedTarget.id.replace('CELL-', '')})
+            Inspector ({selectedTarget.id.replace('CELL-', '')})
+          </button>
+          <button
+            type="button"
+            onClick={() => setPanelTab('LIVE_FEED')}
+            className={`flex-1 py-1.5 px-2 text-[11px] font-mono transition-colors whitespace-nowrap ${
+              panelTab === 'LIVE_FEED'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
+                : 'text-emerald-400/90 hover:text-emerald-200'
+            }`}
+          >
+            ● Live Feed Sim
           </button>
         </div>
       </div>
+
+      {/* ==================================================
+          VIEW 3: DEDICATED LIVE FEED SIMULATOR & PIPELINE
+          ================================================== */}
+      {panelTab === 'LIVE_FEED' && (
+        <div className="p-3.5 space-y-3 flex-1">
+          <LiveFeedSimulator
+            roads={roads}
+            sensors={sensors}
+            activityFeed={activityFeed}
+            onInjectObservation={onInjectObservation}
+            onResetObservations={onResetObservations}
+            onSelectMapTarget={handleSelectAndInspect}
+          />
+        </div>
+      )}
 
       {/* ==================================================
           VIEW 1: ACTION CARDS + SITUATION OVERVIEW
@@ -473,6 +520,19 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 </div>
               </div>
             </div>
+          </section>
+
+          {/* SECTION C: LIVE FEED SIMULATOR & REAL-TIME ACTIVITY FEED */}
+          <section aria-label="Live Feed Simulator" className="pt-2 border-t border-slate-800">
+            <LiveFeedSimulator
+              roads={roads}
+              sensors={sensors}
+              activityFeed={activityFeed}
+              onInjectObservation={onInjectObservation}
+              onResetObservations={onResetObservations}
+              onSelectMapTarget={handleSelectAndInspect}
+              compact
+            />
           </section>
         </div>
       )}
@@ -744,36 +804,55 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 <h3 className="text-base font-semibold text-white mt-0.5">
                   {inspectedRoad.name}
                 </h3>
-                <div className="mt-2">
-                  <RoadStateIndicator state={inspectedRoad.currentState} />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-slate-400">Current state:</span>
+                    <RoadStateIndicator state={inspectedRoad.currentState} />
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    {inspectedRoad.agreeingObservationsCount} agreeing source(s)
+                  </span>
+                </div>
+                <div className="mt-1.5 font-mono text-[11px] text-slate-300">
+                  {inspectedRoad.transitionReason}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">FLOOD PROBABILITY</div>
-                  <div className="text-xl font-mono font-semibold text-white tabular-nums mt-0.5">
+                  <div className="text-[10.5px] font-mono text-slate-400">Flood probability</div>
+                  <div className="text-xl font-mono font-bold text-white tabular-nums mt-0.5">
                     {Math.round(inspectedRoad.floodProbability * 100)}%
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Est. Water Depth: <span className="text-slate-200">{inspectedRoad.estimatedWaterDepthCm} cm</span>
+                  <div className="text-[10.5px] font-mono text-slate-400 mt-0.5">
+                    Depth: <span className="text-slate-200">~{inspectedRoad.estimatedWaterDepthCm}cm</span>
                   </div>
                 </div>
 
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">LAST UPDATE & CONF</div>
-                  <div className="text-lg font-mono font-semibold text-cyan-300 tabular-nums mt-0.5">
-                    {Math.round(inspectedRoad.confidence * 100)}% Conf
+                  <div className="text-[10.5px] font-mono text-slate-400">Confidence</div>
+                  <div className="text-xl font-mono font-bold text-cyan-300 tabular-nums mt-0.5">
+                    {Math.round(inspectedRoad.confidence * 100)}%
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Updated: {inspectedRoad.lastUpdate}
+                  <div className="text-[10.5px] font-mono text-slate-400 mt-0.5">
+                    {inspectedRoad.isHysteresisHeld ? 'Hysteresis Hold' : 'State Verified'}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
+                  <div className="text-[10.5px] font-mono text-slate-400">Last update</div>
+                  <div className="text-sm font-mono font-semibold text-emerald-300 tabular-nums mt-1">
+                    {inspectedRoad.lastUpdate}
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    Real-time fusion
                   </div>
                 </div>
               </div>
 
               <div className="p-3 bg-[#0D1320] border border-slate-800/90 text-xs space-y-1.5">
-                <div className="font-mono text-[11px] text-slate-400">
-                  EVIDENCE & SENSOR VERIFICATION CHAIN
+                <div className="font-mono text-[11px] text-slate-300 font-semibold">
+                  Evidence (Prediction · Water Level · Closure · Crowd)
                 </div>
                 <ul className="space-y-1.5 text-slate-300 text-[11.5px] list-disc pl-4">
                   {inspectedRoad.evidence.map((ev, i) => (
@@ -785,14 +864,44 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               </div>
 
               <div className="p-3 bg-[#0D1320] border border-slate-800/90 text-xs space-y-1.5">
-                <div className="font-mono text-[11px] text-slate-400">
-                  OPERATIONAL ROUTE IMPACT
+                <div className="font-mono text-[11px] text-slate-300 font-semibold">
+                  Impact on routes
                 </div>
                 <p className="text-slate-200 text-[11.5px] leading-relaxed">
                   {inspectedRoad.routeImpact}
                 </p>
                 <div className="pt-1.5 border-t border-slate-800/80 text-[11px] text-cyan-300 font-mono">
-                  Advisory: {inspectedRoad.alternativeSummary}
+                  Recommendation: {inspectedRoad.alternativeSummary}
+                </div>
+              </div>
+
+              {/* Direct Live Feed Injection Controls for this Road */}
+              <div className="p-2.5 bg-[#080C14] border border-slate-800 space-y-1.5 font-mono text-[11px]">
+                <div className="text-slate-400 text-[10px]">
+                  INJECT OBSERVATION ON {inspectedRoad.id}:
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onInjectObservation('ROAD_CLOSURE', inspectedRoad.id)}
+                    className="px-2 py-1.5 bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/50 text-rose-200 whitespace-nowrap"
+                  >
+                    ✖ Road closure
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onInjectObservation('ROAD_REOPENED', inspectedRoad.id)}
+                    className="px-2 py-1.5 bg-emerald-950/60 hover:bg-emerald-900/70 border border-emerald-500/50 text-emerald-200 whitespace-nowrap"
+                  >
+                    ● Road reopened
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onInjectObservation('CROWD_REPORT', inspectedRoad.id)}
+                    className="px-2 py-1.5 bg-amber-950/60 hover:bg-amber-900/70 border border-amber-500/50 text-amber-200 whitespace-nowrap"
+                  >
+                    ⚑ Crowd report
+                  </button>
                 </div>
               </div>
 
@@ -820,31 +929,72 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 <h3 className="text-base font-semibold text-white mt-0.5">
                   {inspectedSensor.name}
                 </h3>
-                <div className="mt-1 font-mono text-xs text-cyan-300">
-                  Status: {inspectedSensor.status} · Heartbeat {inspectedSensor.lastHeartbeatSecAgo}s ago
+                <div className="mt-1.5 flex items-center justify-between font-mono text-xs">
+                  <span className={SENSOR_FRESHNESS_META[inspectedSensor.freshnessState].textColor}>
+                    {SENSOR_FRESHNESS_META[inspectedSensor.freshnessState].glyph} Freshness:{' '}
+                    <strong>{inspectedSensor.freshnessState}</strong>
+                  </span>
+                  <span className="text-slate-300">
+                    Last seen: <strong>{inspectedSensor.lastSeenLabel}</strong>
+                  </span>
+                </div>
+                <div className="mt-1 font-mono text-[11px] text-amber-200">
+                  Diagnostic: {inspectedSensor.diagnosticNote}
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">CURRENT READING</div>
-                  <div className="text-xl font-mono font-semibold text-white tabular-nums mt-0.5">
+                  <div className="text-[10.5px] font-mono text-slate-400">READING</div>
+                  <div className="text-lg font-mono font-semibold text-white tabular-nums mt-0.5">
                     {inspectedSensor.currentValue}{' '}
                     <span className="text-xs text-slate-400">{inspectedSensor.unit}</span>
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Warn: {inspectedSensor.warningThreshold} · Crit: {inspectedSensor.criticalThreshold}
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    Crit: {inspectedSensor.criticalThreshold}
                   </div>
                 </div>
 
                 <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
-                  <div className="text-[11px] font-mono text-slate-400">PACKET & BATTERY</div>
-                  <div className="text-xl font-mono font-semibold text-emerald-300 tabular-nums mt-0.5">
+                  <div className="text-[10.5px] font-mono text-slate-400">CONFIDENCE</div>
+                  <div className="text-lg font-mono font-semibold text-cyan-300 tabular-nums mt-0.5">
+                    {Math.round(inspectedSensor.confidence * 100)}%
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    Status: {inspectedSensor.status}
+                  </div>
+                </div>
+
+                <div className="p-2.5 bg-[#0D1320] border border-slate-800/90">
+                  <div className="text-[10.5px] font-mono text-slate-400">PACKETS</div>
+                  <div className="text-lg font-mono font-semibold text-emerald-300 tabular-nums mt-0.5">
                     {inspectedSensor.packetSuccessRatePct}%
                   </div>
-                  <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                    Battery: {inspectedSensor.batteryPct}%
+                  <div className="text-[10px] font-mono text-slate-400 mt-0.5">
+                    Bat: {inspectedSensor.batteryPct}%
                   </div>
+                </div>
+              </div>
+
+              <div className="p-2.5 bg-[#080C14] border border-slate-800 space-y-1.5 font-mono text-[11px]">
+                <div className="text-slate-400 text-[10px]">
+                  INJECT SENSOR OBSERVATION ({inspectedSensor.id}):
+                </div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => onInjectObservation('WATER_LEVEL_INCREASE', inspectedSensor.id)}
+                    className="px-2 py-1.5 bg-cyan-950/60 hover:bg-cyan-900/70 border border-cyan-500/50 text-cyan-200 whitespace-nowrap"
+                  >
+                    ▲ Water-level increase
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onInjectObservation('SENSOR_FAILURE', inspectedSensor.id)}
+                    className="px-2 py-1.5 bg-purple-950/60 hover:bg-purple-900/70 border border-purple-500/50 text-purple-200 whitespace-nowrap"
+                  >
+                    ⚡ Sensor failure
+                  </button>
                 </div>
               </div>
 

@@ -6,7 +6,11 @@ import { ModuleWorkspace } from './components/ModuleWorkspaces';
 import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/SeverityVisuals';
 import { PILOT_SCOPE_ID } from './data/indorePilotData';
 import { generateOperationalAlerts } from './modules/alerts';
-import { ingestSensorTelemetry, wrapInEnvelope } from './modules/dataIngestion';
+import {
+  DEFAULT_INJECTED_OBSERVATIONS,
+  ingestSensorTelemetry,
+  wrapInEnvelope,
+} from './modules/dataIngestion';
 import { evaluateDataHealth } from './modules/dataQuality';
 import { evaluateSheltersAndEvacuation } from './modules/evacuation';
 import { getPresetById, resolveTimelineStepParameters } from './modules/historicalReplay';
@@ -15,10 +19,14 @@ import { evaluateRoadNetworkState } from './modules/roadState';
 import { computeRouteRecommendations } from './modules/routing';
 import { generateValidationReport } from './modules/validation';
 import {
+  ActivityFeedEntry,
   DisasterStage,
   FloodSeverity,
+  InjectedObservationState,
   NavigationTab,
+  ObservationInjectionType,
   ProductMode,
+  RoadStatus,
   ScenarioParameters,
   UserRole,
   WarningLevel,
@@ -54,8 +62,52 @@ export default function App() {
 
   // Hysteresis state tracking across ticks
   const previousWarningsRef = useRef<Map<string, WarningLevel>>(new Map());
+  const previousRoadStatesRef = useRef<Map<string, RoadStatus>>(new Map());
   const prevRainRef = useRef<number>(params.rainfallIntensityMmHr);
   const [stableTicksElapsed, setStableTicksElapsed] = useState<number>(3);
+
+  // Real-time injected observations state (Live Feed Simulator)
+  const [injectedObservations, setInjectedObservations] =
+    useState<InjectedObservationState>(DEFAULT_INJECTED_OBSERVATIONS);
+
+  const [activityFeed, setActivityFeed] = useState<ActivityFeedEntry[]>([
+    {
+      id: 'ACT-INIT-1',
+      timestamp: '18:42:15',
+      category: 'ROAD_STATE',
+      message: 'RD-05 (MG Road Krishnapura Bridge) state: CLOSED',
+      detail: 'Road graph updated · Emergency ambulance routes recalculated via elevated Regal–Palasia corridor.',
+      severity: 'CRITICAL',
+      relatedTarget: { type: 'ROAD', id: 'RD-05' },
+    },
+    {
+      id: 'ACT-INIT-2',
+      timestamp: '18:41:56',
+      category: 'SENSOR',
+      message: 'SEN-WL-04 (Water Sensor C · Sarwate): SUSPECT',
+      detail: 'Abnormal ultrasonic spike (+0.48m jump) flagged by telemetry quality filter.',
+      severity: 'WARNING',
+      relatedTarget: { type: 'SENSOR', id: 'SEN-WL-04' },
+    },
+    {
+      id: 'ACT-INIT-3',
+      timestamp: '18:34:15',
+      category: 'SENSOR',
+      message: 'SEN-WL-05 (Water Sensor B · Harsiddhi): STALE',
+      detail: 'Last seen 8 minutes ago · Local confidence adjusted in cell CELL-R5C2.',
+      severity: 'WARNING',
+      relatedTarget: { type: 'SENSOR', id: 'SEN-WL-05' },
+    },
+    {
+      id: 'ACT-INIT-4',
+      timestamp: '18:41:33',
+      category: 'SENSOR',
+      message: 'SEN-RG-01 (Rain Gauge A · Rajwada): FRESH',
+      detail: 'Last seen 42 seconds ago · 42.0 mm/h verified.',
+      severity: 'INFO',
+      relatedTarget: { type: 'SENSOR', id: 'SEN-RG-01' },
+    },
+  ]);
 
   const updateParamsWithHysteresis = (
     updater: (prev: ScenarioParameters) => ScenarioParameters
@@ -89,15 +141,19 @@ export default function App() {
   const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Set<string>>(new Set());
   const [isPlayingTimeline, setIsPlayingTimeline] = useState<boolean>(false);
 
-  // Modular Service Pipeline Execution
-  const sensors = useMemo(() => ingestSensorTelemetry(params), [params]);
+  // Modular Service Pipeline Execution (every injected observation enters this same pipeline)
+  const sensors = useMemo(
+    () => ingestSensorTelemetry(params, injectedObservations),
+    [params, injectedObservations]
+  );
 
   const cells = useMemo(() => {
     const computed = predictFloodRiskGrid(
       params,
       sensors,
       previousWarningsRef.current,
-      stableTicksElapsed
+      stableTicksElapsed,
+      injectedObservations
     );
     // Record peak effective warnings when stable or escalating
     if (stableTicksElapsed >= 3) {
@@ -106,17 +162,295 @@ export default function App() {
       previousWarningsRef.current = nextMap;
     }
     return computed;
-  }, [params, sensors, stableTicksElapsed]);
+  }, [params, sensors, stableTicksElapsed, injectedObservations]);
 
-  const roads = useMemo(
-    () => evaluateRoadNetworkState(cells, sensors, params),
-    [cells, sensors, params]
-  );
+  const roads = useMemo(() => {
+    const computedRoads = evaluateRoadNetworkState(
+      cells,
+      sensors,
+      params,
+      injectedObservations,
+      previousRoadStatesRef.current,
+      stableTicksElapsed
+    );
+    if (stableTicksElapsed >= 3) {
+      const nextRoadMap = new Map<string, RoadStatus>();
+      computedRoads.forEach((r) => nextRoadMap.set(r.id, r.currentState));
+      previousRoadStatesRef.current = nextRoadMap;
+    }
+    return computedRoads;
+  }, [cells, sensors, params, injectedObservations, stableTicksElapsed]);
 
   const routes = useMemo(
     () => computeRouteRecommendations(roads, params, customOriginId, customDestId),
     [roads, params, customOriginId, customDestId]
   );
+
+  // Track road state transitions and route recalculations in real time
+  const prevClosedIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const currentClosed = new Set(
+      roads.filter((r) => r.currentState === RoadStatus.CLOSED).map((r) => r.id)
+    );
+    if (prevClosedIdsRef.current === null) {
+      prevClosedIdsRef.current = currentClosed;
+      return;
+    }
+
+    const newlyClosed = roads.filter(
+      (r) =>
+        r.currentState === RoadStatus.CLOSED &&
+        !prevClosedIdsRef.current?.has(r.id)
+    );
+    const newlyOpened = roads.filter(
+      (r) =>
+        r.currentState !== RoadStatus.CLOSED &&
+        prevClosedIdsRef.current?.has(r.id)
+    );
+
+    if (newlyClosed.length > 0 || newlyOpened.length > 0) {
+      const nowStr = new Date().toTimeString().slice(0, 8);
+      const newEntries: ActivityFeedEntry[] = [];
+
+      newlyClosed.forEach((r) => {
+        const affectedRoutes = routes.filter((rt) =>
+          rt.baselineShortestRoadIds.includes(r.id)
+        );
+        newEntries.push({
+          id: `ACT-RD-CLOSE-${r.id}-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROUTING',
+          message: `ROAD CLOSED: ${r.id} (${r.name}) removed from road graph`,
+          detail:
+            affectedRoutes.length > 0
+              ? `Recalculated ${affectedRoutes.length} route(s) (${affectedRoutes
+                  .map((rt) => `${rt.originName}→${rt.destinationName} now ${rt.recommendedEtaMin}m`)
+                  .join('; ')})`
+              : `Road graph updated · Traffic diverted around ${r.id} (~${r.estimatedWaterDepthCm}cm depth).`,
+          severity: 'CRITICAL',
+          relatedTarget: { type: 'ROAD', id: r.id },
+        });
+      });
+
+      newlyOpened.forEach((r) => {
+        newEntries.push({
+          id: `ACT-RD-OPEN-${r.id}-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROAD_STATE',
+          message: `ROAD REOPENED / DE-ESCALATED: ${r.id} (${r.name}) → ${r.currentState}`,
+          detail: `Restored to active road graph · Route recommendations updated.`,
+          severity: 'SUCCESS',
+          relatedTarget: { type: 'ROAD', id: r.id },
+        });
+      });
+
+      setActivityFeed((prev) => [...newEntries, ...prev].slice(0, 25));
+    }
+
+    prevClosedIdsRef.current = currentClosed;
+  }, [roads, routes]);
+
+  const handleInjectObservation = (
+    type: ObservationInjectionType,
+    targetId: string
+  ) => {
+    const nowStr = new Date().toTimeString().slice(0, 8);
+
+    if (type === 'RAINFALL_INCREASE') {
+      setStableTicksElapsed(3);
+      setInjectedObservations((prev) => ({
+        ...prev,
+        extraRainfallMmHr: prev.extraRainfallMmHr + 8,
+      }));
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'PREDICTION' as const,
+            message: `Injected +8 mm/h Rainfall Burst across Indore pilot gauges`,
+            detail: `Re-evaluating 64-cell flood probabilities, road states, and route recommendations.`,
+            severity: 'WARNING' as const,
+            relatedTarget: { type: 'SENSOR' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
+    } else if (type === 'WATER_LEVEL_INCREASE') {
+      setStableTicksElapsed(3);
+      const sensorObj = sensors.find((s) => s.id === targetId);
+      setInjectedObservations((prev) => {
+        const nextFailures = { ...prev.sensorFailureState };
+        delete nextFailures[targetId];
+        return {
+          ...prev,
+          sensorFailureState: nextFailures,
+          sensorWaterLevelBoostM: {
+            ...prev.sensorWaterLevelBoostM,
+            [targetId]: Number(
+              ((prev.sensorWaterLevelBoostM[targetId] ?? 0) + 0.45).toFixed(2)
+            ),
+          },
+        };
+      });
+      setSelectedTarget({ type: 'SENSOR', id: targetId });
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'SENSOR' as const,
+            message: `Injected +0.45m Water-Level Surge at ${targetId} (${sensorObj?.name ?? 'Gauge'})`,
+            detail: `Propagating ultrasonic stage rise to host cell ${sensorObj?.cellId ?? ''} and adjacent bridge corridors.`,
+            severity: 'CRITICAL' as const,
+            relatedTarget: { type: 'SENSOR' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
+    } else if (type === 'ROAD_CLOSURE') {
+      setStableTicksElapsed(3);
+      const roadObj = roads.find((r) => r.id === targetId);
+      setInjectedObservations((prev) => ({
+        ...prev,
+        officialRoadOverrides: {
+          ...prev.officialRoadOverrides,
+          [targetId]: 'CLOSED',
+        },
+      }));
+      setSelectedTarget({ type: 'ROAD', id: targetId });
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'ROAD_STATE' as const,
+            message: `Official Road Closure Injected: ${targetId} (${roadObj?.name ?? ''})`,
+            detail: `Transitioned to CLOSED · Triggering road graph update and Dijkstra route recalculation.`,
+            severity: 'CRITICAL' as const,
+            relatedTarget: { type: 'ROAD' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
+    } else if (type === 'ROAD_REOPENED') {
+      const roadObj = roads.find((r) => r.id === targetId);
+      setInjectedObservations((prev) => {
+        const nextCrowd = { ...prev.crowdReportsByRoad };
+        delete nextCrowd[targetId];
+        return {
+          ...prev,
+          officialRoadOverrides: {
+            ...prev.officialRoadOverrides,
+            [targetId]: 'OPEN',
+          },
+          crowdReportsByRoad: nextCrowd,
+        };
+      });
+      setSelectedTarget({ type: 'ROAD', id: targetId });
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'ROAD_STATE' as const,
+            message: `Official Clearance Injected: ${targetId} (${roadObj?.name ?? ''}) REOPENED`,
+            detail: `Corridor restored to OPEN state in road graph · Active routes updated.`,
+            severity: 'SUCCESS' as const,
+            relatedTarget: { type: 'ROAD' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
+    } else if (type === 'CROWD_REPORT') {
+      const roadObj = roads.find((r) => r.id === targetId);
+      setInjectedObservations((prev) => {
+        const existing = prev.crowdReportsByRoad[targetId]?.count ?? 0;
+        const nextCount = existing + 1;
+        return {
+          ...prev,
+          crowdReportsByRoad: {
+            ...prev.crowdReportsByRoad,
+            [targetId]: {
+              count: nextCount,
+              lastReportText:
+                nextCount >= 2
+                  ? 'Multiple citizens report axle-deep water (>35cm) stalling two-wheelers'
+                  : 'Citizen geo-tagged photo of rapid curb overtopping',
+              timestamp: nowStr,
+            },
+          },
+        };
+      });
+      setSelectedTarget({ type: 'ROAD', id: targetId });
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'CROWD' as const,
+            message: `Crowd Report Injected on ${targetId} (${roadObj?.name ?? ''})`,
+            detail: `Corroborating observation fused into Road State Machine (multi-source agreement check).`,
+            severity: 'WARNING' as const,
+            relatedTarget: { type: 'ROAD' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
+    } else if (type === 'SENSOR_FAILURE') {
+      const sensorObj = sensors.find((s) => s.id === targetId);
+      setInjectedObservations((prev) => {
+        const currentFail = prev.sensorFailureState[targetId];
+        const nextFail: 'STALE' | 'SUSPECT' | 'MISSING' =
+          currentFail === 'STALE'
+            ? 'SUSPECT'
+            : currentFail === 'SUSPECT'
+            ? 'MISSING'
+            : 'MISSING';
+        return {
+          ...prev,
+          sensorFailureState: {
+            ...prev.sensorFailureState,
+            [targetId]: nextFail,
+          },
+        };
+      });
+      setSelectedTarget({ type: 'SENSOR', id: targetId });
+      setActivityFeed((prev) =>
+        [
+          {
+            id: `ACT-INJ-${Date.now()}`,
+            timestamp: nowStr,
+            category: 'SENSOR' as const,
+            message: `Sensor Failure Injected: ${targetId} (${sensorObj?.name ?? ''}) → MISSING`,
+            detail: `Telemetry heartbeat lost · Local cell confidence reduced and uncertainty band widened.`,
+            severity: 'WARNING' as const,
+            relatedTarget: { type: 'SENSOR' as const, id: targetId },
+          },
+          ...prev,
+        ].slice(0, 25)
+      );
+    }
+  };
+
+  const handleResetObservations = () => {
+    setInjectedObservations(DEFAULT_INJECTED_OBSERVATIONS);
+    setStableTicksElapsed(3);
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-RESET-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'SYSTEM' as const,
+          message: 'Live Feed Simulator reset to baseline Indore pilot telemetry',
+          detail: 'Cleared injected closures, crowd reports, and rainfall surges.',
+          severity: 'INFO' as const,
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
 
   const activeRoute = useMemo(
     () => routes.find((r) => r.id === selectedRouteId) ?? routes[0] ?? null,
@@ -271,7 +605,7 @@ export default function App() {
           <span className="whitespace-nowrap">
             <span className="text-slate-400">Rainfall </span>
             <span className="text-sky-300 font-semibold">
-              {params.rainfallIntensityMmHr} mm/h
+              {params.rainfallIntensityMmHr + injectedObservations.extraRainfallMmHr} mm/h
             </span>
           </span>
 
@@ -486,6 +820,9 @@ export default function App() {
                 activeRole={activeRole}
                 onSelectMapTarget={setSelectedTarget}
                 onNavigateTab={setActiveTab}
+                activityFeed={activityFeed}
+                onInjectObservation={handleInjectObservation}
+                onResetObservations={handleResetObservations}
               />
 
               <div className="flex-1 min-h-[280px] overflow-hidden">
@@ -520,6 +857,9 @@ export default function App() {
           onNavigateTab={setActiveTab}
           stableTicksElapsed={stableTicksElapsed}
           onStepStableTick={handleStepStableTick}
+          activityFeed={activityFeed}
+          onInjectObservation={handleInjectObservation}
+          onResetObservations={handleResetObservations}
         />
       </div>
 

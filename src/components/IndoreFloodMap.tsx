@@ -736,8 +736,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     strokeLinecap="round"
                   />
 
-                  {(road.currentState === RoadStatus.CLOSED_INUNDATED ||
-                    road.currentState === RoadStatus.RESTRICTED_SHALLOW) && (
+                  {(road.currentState === RoadStatus.CLOSED ||
+                    road.currentState === RoadStatus.LIKELY_FLOODED ||
+                    road.currentState === RoadStatus.AT_RISK) && (
                     <g transform={`translate(${midX}, ${midY})`}>
                       <rect
                         x="-12"
@@ -954,12 +955,12 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               const isSelected =
                 selectedTarget.type === 'SENSOR' && selectedTarget.id === s.id;
               const ringColor =
-                s.status === 'STALE'
-                  ? '#94A3B8'
-                  : s.status === 'CRITICAL_THRESHOLD'
-                  ? '#EF4444'
-                  : s.status === 'DRIFTING'
-                  ? '#F59E0B'
+                s.freshnessState === 'MISSING'
+                  ? '#F43F5E'
+                  : s.freshnessState === 'SUSPECT'
+                  ? '#F97316'
+                  : s.freshnessState === 'STALE'
+                  ? '#EAB308'
                   : '#22D3EE';
 
               return (
@@ -972,7 +973,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   }}
                   onMouseEnter={() =>
                     setHoveredInfo(
-                      `SENSOR ${s.id}: ${s.name} · ${s.currentValue} ${s.unit} · Status: ${s.status}`
+                      `SENSOR ${s.id}: ${s.name} · ${s.currentValue} ${s.unit} · Quality: ${s.freshnessState} (${s.lastSeenLabel}) · Conf ${Math.round(
+                        s.confidence * 100
+                      )}%`
                     )
                   }
                   onMouseLeave={() => setHoveredInfo(null)}

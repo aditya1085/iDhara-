@@ -87,9 +87,44 @@ export interface WarningHysteresisState {
 
 export enum RoadStatus {
   OPEN = 'OPEN',
-  CAUTION_WATERLOGGING = 'CAUTION_WATERLOGGING',
-  RESTRICTED_SHALLOW = 'RESTRICTED_SHALLOW',
-  CLOSED_INUNDATED = 'CLOSED_INUNDATED',
+  AT_RISK = 'AT_RISK',
+  LIKELY_FLOODED = 'LIKELY_FLOODED',
+  CLOSED = 'CLOSED',
+  // Backwards-compatible aliases pointing to the 4 canonical states
+  CAUTION_WATERLOGGING = 'AT_RISK',
+  RESTRICTED_SHALLOW = 'LIKELY_FLOODED',
+  CLOSED_INUNDATED = 'CLOSED',
+}
+
+export type SensorFreshnessState = 'FRESH' | 'STALE' | 'SUSPECT' | 'MISSING';
+
+export type ObservationInjectionType =
+  | 'RAINFALL_INCREASE'
+  | 'WATER_LEVEL_INCREASE'
+  | 'ROAD_CLOSURE'
+  | 'ROAD_REOPENED'
+  | 'CROWD_REPORT'
+  | 'SENSOR_FAILURE';
+
+export interface InjectedObservationState {
+  extraRainfallMmHr: number;
+  sensorWaterLevelBoostM: Record<string, number>;
+  sensorFailureState: Record<string, 'STALE' | 'SUSPECT' | 'MISSING'>;
+  officialRoadOverrides: Record<string, 'CLOSED' | 'OPEN'>;
+  crowdReportsByRoad: Record<string, { count: number; lastReportText: string; timestamp: string }>;
+}
+
+export interface ActivityFeedEntry {
+  id: string;
+  timestamp: string; // e.g. '18:42:10'
+  category: 'SENSOR' | 'PREDICTION' | 'ROAD_STATE' | 'ROUTING' | 'CROWD' | 'SYSTEM';
+  message: string;
+  detail?: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL' | 'SUCCESS';
+  relatedTarget?: {
+    type: 'CELL' | 'ROAD' | 'SENSOR' | 'SHELTER' | 'ASSET';
+    id: string;
+  };
 }
 
 export type OperationalStep =
@@ -192,9 +227,13 @@ export interface BaseRoadSegment {
 
 export interface RoadSegmentState extends BaseRoadSegment, DataProvenance {
   currentState: RoadStatus;
+  rawState: RoadStatus;
+  isHysteresisHeld: boolean;
+  transitionReason: string;
+  agreeingObservationsCount: number;
   floodProbability: number;
   estimatedWaterDepthCm: number;
-  effectiveTravelTimeMin: number; // Infinity if CLOSED_INUNDATED
+  effectiveTravelTimeMin: number; // Infinity if CLOSED
   evidence: string[];
   lastUpdate: string;
   routeImpact: string;
@@ -215,6 +254,9 @@ export interface SensorNode extends DataProvenance {
   warningThreshold: number;
   criticalThreshold: number;
   status: 'NOMINAL' | 'DRIFTING' | 'STALE' | 'CRITICAL_THRESHOLD';
+  freshnessState: SensorFreshnessState; // FRESH | STALE | SUSPECT | MISSING
+  lastSeenLabel: string; // e.g. '42 seconds ago', '8 minutes ago'
+  diagnosticNote: string; // e.g. 'Normal telemetry', 'abnormal spike'
   lastHeartbeatSecAgo: number;
   batteryPct: number;
   packetSuccessRatePct: number;

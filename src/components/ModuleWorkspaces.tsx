@@ -1,11 +1,12 @@
 import React from 'react';
 import { INTERSECTION_NODES } from '../data/indorePilotData';
 import {
-   getDisasterTwinStages,
+  getDisasterTwinStages,
   OPERATIONAL_CHAIN,
 } from '../modules/disasterTwin';
 import { getEventPresets } from '../modules/historicalReplay';
 import {
+  ActivityFeedEntry,
   AlertItem,
   DataHealthReport,
   DisasterStage,
@@ -13,6 +14,7 @@ import {
   FloodRiskCell,
   FloodSeverity,
   NavigationTab,
+  ObservationInjectionType,
   ProductMode,
   RoadSegmentState,
   RoadStatus,
@@ -24,9 +26,11 @@ import {
   ValidationReport,
 } from '../types/idhara';
 import { MapInspectionTarget } from './IndoreFloodMap';
+import { LiveFeedSimulator } from './LiveFeedSimulator';
 import {
   ProvenanceStrip,
   RoadStateIndicator,
+  SENSOR_FRESHNESS_META,
   SeverityIndicator,
 } from './SeverityVisuals';
 
@@ -52,6 +56,9 @@ interface ModuleWorkspaceProps {
   activeRole: UserRole;
   onSelectMapTarget: (target: MapInspectionTarget) => void;
   onNavigateTab: (tab: NavigationTab) => void;
+  activityFeed: ActivityFeedEntry[];
+  onInjectObservation: (type: ObservationInjectionType, targetId: string) => void;
+  onResetObservations: () => void;
 }
 
 export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
@@ -76,17 +83,22 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
   activeRole,
   onSelectMapTarget,
   onNavigateTab,
+  activityFeed,
+  onInjectObservation,
+  onResetObservations,
 }) => {
   const criticalCells = cells.filter((c) => c.severity === FloodSeverity.CRITICAL);
   const highCells = cells.filter((c) => c.severity === FloodSeverity.HIGH);
-  const closedRoads = roads.filter((r) => r.currentState === RoadStatus.CLOSED_INUNDATED);
-  const restrictedRoads = roads.filter((r) => r.currentState === RoadStatus.RESTRICTED_SHALLOW);
+  const closedRoads = roads.filter((r) => r.currentState === RoadStatus.CLOSED);
+  const likelyFloodedRoads = roads.filter(
+    (r) => r.currentState === RoadStatus.LIKELY_FLOODED
+  );
 
-  // 1. OVERVIEW / MISSION SUMMARY STRIP (Displayed above map in Overview mode)
+  // 1. OVERVIEW / MISSION SUMMARY STRIP
   if (activeTab === 'overview') {
     return (
       <div className="bg-[#080C14] border-b border-slate-800/90 px-4 py-3 space-y-3">
-        {/* Operational Chain Bar: RAIN -> PREDICT -> WARN -> SIMULATE -> VERIFY -> REROUTE -> EVACUATE -> LEARN */}
+        {/* Operational Chain Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/70">
           <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
             {OPERATIONAL_CHAIN.map((item, idx) => (
@@ -144,18 +156,18 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
 
           <div className="p-2.5 bg-[#0C121E] border border-slate-800/90">
             <div className="font-mono text-[11px] text-slate-400">
-              ROAD & BRIDGE CLOSURES
+              ROAD STATE MACHINE (24 CORRIDORS)
             </div>
             <div className="flex items-baseline gap-2 mt-0.5">
               <span className="text-2xl font-mono font-semibold text-rose-400 tabular-nums">
-                {closedRoads.length}
+                {closedRoads.length} Closed
               </span>
               <span className="text-xs font-mono text-amber-400 tabular-nums">
-                + {restrictedRoads.length} Restricted
+                + {likelyFloodedRoads.length} Likely Flooded
               </span>
             </div>
             <div className="text-[11px] font-mono text-cyan-300 mt-0.5 truncate">
-              {routes.filter((r) => r.avoidedHazardCount > 0).length} Emergency Corridors Rerouted
+              {routes.filter((r) => r.avoidedHazardCount > 0).length} Active Routes Recalculated
             </div>
           </div>
 
@@ -182,18 +194,18 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
 
           <div className="p-2.5 bg-[#0C121E] border border-slate-800/90">
             <div className="font-mono text-[11px] text-slate-400">
-              TELEMETRY & MODEL CONFIDENCE
+              SENSOR & MODEL CONFIDENCE
             </div>
             <div className="flex items-baseline gap-2 mt-0.5">
               <span className="text-2xl font-mono font-semibold text-cyan-300 tabular-nums">
                 {Math.round(dataHealthReport.confidence * 100)}%
               </span>
               <span className="text-xs font-mono text-slate-400 tabular-nums">
-                {dataHealthReport.activeSensorsCount}/{dataHealthReport.totalSensorsCount} Gauges Online
+                {sensors.filter((s) => s.freshnessState === 'FRESH').length} Fresh / {sensors.length} Total
               </span>
             </div>
             <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
-              Mode: {params.mode} · Stage: {params.stage.replace(/_/g, ' ')}
+              {sensors.filter((s) => s.freshnessState !== 'FRESH').length} Stale/Suspect/Missing
             </div>
           </div>
         </div>
@@ -201,228 +213,22 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     );
   }
 
-  // 2. RISK MAP (Full-height map view, minimal header strip)
+  // 2. RISK MAP
   if (activeTab === 'risk-map') {
     return null;
   }
 
-  // 3. DISASTER TWIN (Four-Stage Disaster Twin + What-If Simulator)
-  if (activeTab === 'disaster-twin') {
-    const stages = getDisasterTwinStages(cells, roads, params);
-    return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[52vh] overflow-y-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="font-mono text-[11px] text-cyan-400">
-              FOUR-STAGE MUNICIPAL DISASTER TWIN ENGINE
-            </div>
-            <h2 className="text-base font-semibold text-white">
-              Stage-Gate Operations & Hydrological Stress Simulator
-            </h2>
-          </div>
-          <span className="font-mono text-xs text-slate-400">
-            Click any stage below to transition the Indore 5×5 km twin state
-          </span>
-        </div>
-
-        {/* 4 Stages Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {stages.map((st) => {
-            const isActive = params.stage === st.stage;
-            return (
-              <div
-                key={st.stage}
-                onClick={() =>
-                  onUpdateParams((prev) => ({
-                    ...prev,
-                    stage: st.stage,
-                    mode:
-                      st.stage === DisasterStage.POST_DISASTER_LEARNING
-                        ? ProductMode.HISTORICAL
-                        : ProductMode.SIMULATED,
-                  }))
-                }
-                className={`p-3 border cursor-pointer transition-colors ${
-                  isActive
-                    ? 'bg-cyan-950/30 border-cyan-500/70'
-                    : 'bg-[#0C121E] border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between font-mono text-xs">
-                  <span className={isActive ? 'text-cyan-300 font-semibold' : 'text-slate-300'}>
-                    {st.title}
-                  </span>
-                  <span className="text-[10px] text-slate-400">{st.windowLabel.split('·')[0]}</span>
-                </div>
-                <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  {st.objective}
-                </p>
-                <div className="mt-2.5 pt-2 border-t border-slate-800/80 space-y-1">
-                  {st.activeReadinessChecklist.map((chk) => (
-                    <div
-                      key={chk.id}
-                      className="flex items-start gap-1.5 text-[11px] font-mono text-slate-300"
-                    >
-                      <span
-                        className={
-                          chk.status === 'COMPLETE'
-                            ? 'text-emerald-400'
-                            : chk.status === 'ACTIVE'
-                            ? 'text-cyan-300'
-                            : 'text-slate-500'
-                        }
-                      >
-                        {chk.status === 'COMPLETE' ? '✓' : chk.status === 'ACTIVE' ? '▶' : '○'}
-                      </span>
-                      <span className="leading-tight">{chk.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Interactive Parameter Controls */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-3 bg-[#0C121E] border border-slate-800">
-          <div>
-            <div className="flex justify-between font-mono text-xs">
-              <label htmlFor="twin-rain-slider" className="text-slate-300">
-                Rainfall Intensity
-              </label>
-              <span className="text-cyan-300 font-semibold tabular-nums">
-                {params.rainfallIntensityMmHr} mm/hr
-              </span>
-            </div>
-            <input
-              id="twin-rain-slider"
-              type="range"
-              min={10}
-              max={95}
-              step={2}
-              value={params.rainfallIntensityMmHr}
-              onChange={(e) =>
-                onUpdateParams((p) => ({
-                  ...p,
-                  mode: ProductMode.SIMULATED,
-                  rainfallIntensityMmHr: Number(e.target.value),
-                }))
-              }
-              className="w-full mt-1.5 accent-cyan-400 cursor-pointer"
-            />
-            <div className="flex justify-between font-mono text-[10px] text-slate-500">
-              <span>10 mm/hr (Light)</span>
-              <span>95 mm/hr (Cloudburst)</span>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between font-mono text-xs">
-              <label htmlFor="twin-blockage-slider" className="text-slate-300">
-                Nallah / Culvert Blockage
-              </label>
-              <span className="text-amber-300 font-semibold tabular-nums">
-                {params.drainageBlockagePct}%
-              </span>
-            </div>
-            <input
-              id="twin-blockage-slider"
-              type="range"
-              min={5}
-              max={75}
-              step={5}
-              value={params.drainageBlockagePct}
-              onChange={(e) =>
-                onUpdateParams((p) => ({
-                  ...p,
-                  mode: ProductMode.SIMULATED,
-                  drainageBlockagePct: Number(e.target.value),
-                }))
-              }
-              className="w-full mt-1.5 accent-amber-400 cursor-pointer"
-            />
-            <div className="flex justify-between font-mono text-[10px] text-slate-500">
-              <span>5% (Desilted)</span>
-              <span>75% (Severe Choke)</span>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between font-mono text-xs">
-              <label htmlFor="twin-inflow-slider" className="text-slate-300">
-                Upstream Kahn Inflow
-              </label>
-              <span className="text-sky-300 font-semibold tabular-nums">
-                {params.upstreamKahnInflowMultiplier.toFixed(2)}×
-              </span>
-            </div>
-            <input
-              id="twin-inflow-slider"
-              type="range"
-              min={0.8}
-              max={1.8}
-              step={0.05}
-              value={params.upstreamKahnInflowMultiplier}
-              onChange={(e) =>
-                onUpdateParams((p) => ({
-                  ...p,
-                  mode: ProductMode.SIMULATED,
-                  upstreamKahnInflowMultiplier: Number(e.target.value),
-                }))
-              }
-              className="w-full mt-1.5 accent-sky-400 cursor-pointer"
-            />
-            <div className="flex justify-between font-mono text-[10px] text-slate-500">
-              <span>0.80× Base</span>
-              <span>1.80× Spill Surge</span>
-            </div>
-          </div>
-
-          <div>
-            <div className="flex justify-between font-mono text-xs">
-              <label htmlFor="twin-dropout-slider" className="text-slate-300">
-                Simulated Sensor Dropouts
-              </label>
-              <span className="text-rose-300 font-semibold tabular-nums">
-                {params.sensorDropoutCount} offline
-              </span>
-            </div>
-            <input
-              id="twin-dropout-slider"
-              type="range"
-              min={0}
-              max={4}
-              step={1}
-              value={params.sensorDropoutCount}
-              onChange={(e) =>
-                onUpdateParams((p) => ({
-                  ...p,
-                  sensorDropoutCount: Number(e.target.value),
-                }))
-              }
-              className="w-full mt-1.5 accent-rose-400 cursor-pointer"
-            />
-            <div className="flex justify-between font-mono text-[10px] text-slate-500">
-              <span>0 (All 10 Live)</span>
-              <span>4 Gauges Stale</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 4. ROADS & ROUTING WORKSPACE
+  // 4. ROADS & ROUTING WORKSPACE (with Live Feed Simulator + 4-State Road Machine)
   if (activeTab === 'roads-routing') {
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[54vh] overflow-y-auto">
+      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[55vh] overflow-y-auto">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-mono text-[11px] text-cyan-400">
-              DYNAMIC FLOOD-AWARE ROUTING & ROAD STATE VERIFICATION
+              ROAD STATE MACHINE (OPEN · AT_RISK · LIKELY_FLOODED · CLOSED) & DYNAMIC ROUTING
             </div>
             <h2 className="text-base font-semibold text-white">
-              Emergency & Transit Corridor Recommendations (“Recommended under current data”)
+              Real-Time Road Graph & Route Recalculation (“Recommended under current data”)
             </h2>
           </div>
 
@@ -457,6 +263,17 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           </div>
         </div>
 
+        {/* Live Feed Simulator embedded for immediate Road Closure / Reopen / Water-Level testing */}
+        <LiveFeedSimulator
+          roads={roads}
+          sensors={sensors}
+          activityFeed={activityFeed}
+          onInjectObservation={onInjectObservation}
+          onResetObservations={onResetObservations}
+          onSelectMapTarget={onSelectMapTarget}
+          compact
+        />
+
         {/* Route Recommendations Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {routes.map((rt) => {
@@ -486,7 +303,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                   <span>Est. Time: {rt.recommendedEtaMin} min</span>
                   <span>·</span>
                   <span className="text-emerald-300">
-                    Avoids {rt.avoidedHazardCount} flooded closure(s)
+                    Avoids {rt.avoidedHazardCount} CLOSED/LIKELY_FLOODED segment(s)
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
@@ -504,34 +321,38 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
             <thead>
               <tr className="bg-[#0C121E] text-slate-400 border-b border-slate-800">
                 <th className="py-2 px-3">Road Segment</th>
-                <th className="py-2 px-3">Current State</th>
+                <th className="py-2 px-3">State Machine</th>
                 <th className="py-2 px-3 text-right">Flood Prob</th>
-                <th className="py-2 px-3 text-right">Est. Depth</th>
-                <th className="py-2 px-3">Verification Evidence</th>
+                <th className="py-2 px-3 text-right">Obs Sources</th>
+                <th className="py-2 px-3">Transition Evidence</th>
                 <th className="py-2 px-3 text-right">Conf</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70">
-              {roads.slice(0, 10).map((r) => (
+              {roads.map((r) => (
                 <tr
                   key={r.id}
                   onClick={() => onSelectMapTarget({ type: 'ROAD', id: r.id })}
                   className="hover:bg-slate-900/80 cursor-pointer"
                 >
                   <td className="py-2 px-3 text-slate-200 font-sans font-medium">
+                    <span className="font-mono text-cyan-400 mr-1.5">{r.id}</span>
                     {r.name}
                   </td>
                   <td className="py-2 px-3">
                     <RoadStateIndicator state={r.currentState} />
+                    {r.isHysteresisHeld && (
+                      <span className="ml-1.5 text-[10px] text-amber-300">(Hold)</span>
+                    )}
                   </td>
                   <td className="py-2 px-3 text-right tabular-nums text-slate-200">
                     {Math.round(r.floodProbability * 100)}%
                   </td>
                   <td className="py-2 px-3 text-right tabular-nums text-slate-300">
-                    {r.estimatedWaterDepthCm} cm
+                    {r.agreeingObservationsCount} source(s)
                   </td>
                   <td className="py-2 px-3 text-slate-400 truncate max-w-xs">
-                    {r.evidence[0]}
+                    {r.transitionReason}
                   </td>
                   <td className="py-2 px-3 text-right tabular-nums text-cyan-300">
                     {Math.round(r.confidence * 100)}%
@@ -753,7 +574,6 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Event Preset Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           {presets.map((preset) => {
             const isSelected = preset.id === params.activeEventPresetId;
@@ -793,7 +613,6 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           })}
         </div>
 
-        {/* Hourly Hydrograph Bar Chart & Timeline Step Selector */}
         <div className="p-3 bg-[#0C121E] border border-slate-800">
           <div className="flex items-center justify-between font-mono text-xs text-slate-300 mb-2">
             <span>HOURLY RAINFALL & STAGE PROFILE — {activePreset.title}</span>
@@ -865,7 +684,6 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           <ProvenanceStrip provenance={validationReport} compact />
         </div>
 
-        {/* Quantitative Verification Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
           <div className="p-2.5 bg-[#0C121E] border border-slate-800">
             <div className="font-mono text-[10.5px] text-slate-400">CRITICAL SUCCESS INDEX</div>
@@ -904,7 +722,6 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* Model Calibration Recommendations + Top Residuals */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <div className="p-3 bg-[#0C121E] border border-slate-800 space-y-2">
             <div className="font-mono text-xs text-cyan-300 font-semibold">
@@ -973,107 +790,122 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     );
   }
 
-  // 9. DATA HEALTH & SENSOR TELEMETRY WORKSPACE
+  // 9. DATA HEALTH & SENSOR TELEMETRY WORKSPACE (FRESH | STALE | SUSPECT | MISSING)
   if (activeTab === 'data-health') {
+    const rainGaugeA = sensors.find((s) => s.id === 'SEN-RG-01') ?? sensors[6];
+    const waterSensorB = sensors.find((s) => s.id === 'SEN-WL-05') ?? sensors[4];
+    const waterSensorC = sensors.find((s) => s.id === 'SEN-WL-04') ?? sensors[3];
+
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[54vh] overflow-y-auto">
+      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[55vh] overflow-y-auto">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="font-mono text-[11px] text-cyan-400">
-              DATA QUALITY, TELEMETRY FRESHNESS & PROVENANCE AUDIT
+              DATA QUALITY & SENSOR FRESHNESS STATES (FRESH · STALE · SUSPECT · MISSING)
             </div>
             <h2 className="text-base font-semibold text-white">
-              Indore Pilot Sensor Network & Ingestion Pipeline Health ({dataHealthReport.overallHealthPct}%)
+              Data Health & Telemetry Quality Panel ({dataHealthReport.overallHealthPct}%)
             </h2>
           </div>
           <ProvenanceStrip provenance={dataHealthReport} compact />
         </div>
 
-        {/* Subsystem Health Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {dataHealthReport.subsystems.map((sub) => (
-            <div
-              key={sub.name}
-              className="p-3 bg-[#0C121E] border border-slate-800 space-y-1.5"
-            >
-              <div className="flex items-center justify-between font-mono text-[11px]">
-                <span
-                  className={
-                    sub.status === 'HEALTHY'
-                      ? 'text-emerald-400'
-                      : sub.status === 'DEGRADED'
-                      ? 'text-amber-400'
-                      : 'text-cyan-300'
-                  }
-                >
-                  ● {sub.status}
-                </span>
-                <span className="text-slate-400 tabular-nums">{sub.completenessPct}% Complete</span>
+        {/* Highlighted Sensor State Examples (Rain Gauge A: FRESH, Water Sensor B: STALE, Water Sensor C: SUSPECT) */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 font-mono">
+          {[
+            { label: 'Rain Gauge A (Rajwada)', sensor: rainGaugeA },
+            { label: 'Water Sensor B (Harsiddhi)', sensor: waterSensorB },
+            { label: 'Water Sensor C (Sarwate Sump)', sensor: waterSensorC },
+          ].map((item) => {
+            const fMeta = SENSOR_FRESHNESS_META[item.sensor.freshnessState];
+            return (
+              <div
+                key={item.sensor.id}
+                onClick={() => onSelectMapTarget({ type: 'SENSOR', id: item.sensor.id })}
+                className={`p-3 border ${fMeta.borderColor} ${fMeta.bgTint} cursor-pointer space-y-1`}
+              >
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-sans font-semibold text-white">{item.label}</span>
+                  <span className={`font-bold ${fMeta.textColor}`}>
+                    {fMeta.glyph} {item.sensor.freshnessState}
+                  </span>
+                </div>
+                <div className="text-xs text-slate-200">
+                  Last seen: <strong>{item.sensor.lastSeenLabel}</strong>
+                </div>
+                <div className="text-[11px] text-slate-300">
+                  Note: <span className="text-amber-200">{item.sensor.diagnosticNote}</span>
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-800/80 tabular-nums">
+                  <span>
+                    Reading: {item.sensor.currentValue} {item.sensor.unit}
+                  </span>
+                  <span className="text-cyan-300">
+                    Conf: {Math.round(item.sensor.confidence * 100)}%
+                  </span>
+                </div>
               </div>
-              <div className="text-xs font-semibold text-white">{sub.name}</div>
-              <div className="font-mono text-[11px] text-slate-400">{sub.sourceType}</div>
-              <div className="font-mono text-[11px] text-slate-300 pt-1 border-t border-slate-800/80">
-                Impact: {sub.confidenceImpact}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* 10 Sensors Live Table */}
+        {/* Live Feed Simulator embedded for injecting Sensor Failures / Water-Level Spikes */}
+        <LiveFeedSimulator
+          roads={roads}
+          sensors={sensors}
+          activityFeed={activityFeed}
+          onInjectObservation={onInjectObservation}
+          onResetObservations={onResetObservations}
+          onSelectMapTarget={onSelectMapTarget}
+          compact
+        />
+
+        {/* 10 Sensors Full Telemetry Quality Table */}
         <div className="overflow-x-auto border border-slate-800">
           <table className="w-full text-left border-collapse font-mono text-xs">
             <thead>
               <tr className="bg-[#0C121E] text-slate-400 border-b border-slate-800">
-                <th className="py-2 px-3">Sensor ID & Location</th>
-                <th className="py-2 px-3">Type</th>
+                <th className="py-2 px-3">Sensor ID & Name</th>
+                <th className="py-2 px-3">Freshness State</th>
+                <th className="py-2 px-3">Last Seen</th>
                 <th className="py-2 px-3 text-right">Reading</th>
-                <th className="py-2 px-3">Status</th>
-                <th className="py-2 px-3 text-right">Freshness</th>
-                <th className="py-2 px-3 text-right">Packet Success</th>
+                <th className="py-2 px-3">Diagnostic / Quality Note</th>
                 <th className="py-2 px-3 text-right">Confidence</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70">
-              {sensors.map((s) => (
-                <tr
-                  key={s.id}
-                  onClick={() => onSelectMapTarget({ type: 'SENSOR', id: s.id })}
-                  className="hover:bg-slate-900/80 cursor-pointer"
-                >
-                  <td className="py-2 px-3 text-slate-200 font-sans font-medium">
-                    <span className="font-mono text-cyan-300 mr-1.5">{s.id}</span>
-                    {s.name}
-                  </td>
-                  <td className="py-2 px-3 text-slate-400">{s.type}</td>
-                  <td className="py-2 px-3 text-right tabular-nums text-white">
-                    {s.currentValue} {s.unit}
-                  </td>
-                  <td className="py-2 px-3">
-                    <span
-                      className={
-                        s.status === 'NOMINAL'
-                          ? 'text-emerald-400'
-                          : s.status === 'CRITICAL_THRESHOLD'
-                          ? 'text-rose-400 font-semibold'
-                          : s.status === 'DRIFTING'
-                          ? 'text-amber-400'
-                          : 'text-slate-500'
-                      }
-                    >
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="py-2 px-3 text-right tabular-nums text-slate-300">
-                    {s.lastHeartbeatSecAgo}s ago
-                  </td>
-                  <td className="py-2 px-3 text-right tabular-nums text-slate-300">
-                    {s.packetSuccessRatePct}%
-                  </td>
-                  <td className="py-2 px-3 text-right tabular-nums text-cyan-300">
-                    {Math.round(s.confidence * 100)}%
-                  </td>
-                </tr>
-              ))}
+              {sensors.map((s) => {
+                const fMeta = SENSOR_FRESHNESS_META[s.freshnessState];
+                return (
+                  <tr
+                    key={s.id}
+                    onClick={() => onSelectMapTarget({ type: 'SENSOR', id: s.id })}
+                    className="hover:bg-slate-900/80 cursor-pointer"
+                  >
+                    <td className="py-2 px-3 text-slate-200 font-sans font-medium">
+                      <span className="font-mono text-cyan-300 mr-1.5">{s.id}</span>
+                      {s.name}
+                    </td>
+                    <td className="py-2 px-3">
+                      <span className={`font-bold ${fMeta.textColor}`}>
+                        {fMeta.glyph} {s.freshnessState}
+                      </span>
+                    </td>
+                    <td className="py-2 px-3 text-slate-300 tabular-nums">
+                      {s.lastSeenLabel}
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-white">
+                      {s.currentValue} {s.unit}
+                    </td>
+                    <td className="py-2 px-3 text-slate-400">
+                      {s.diagnosticNote}
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-cyan-300">
+                      {Math.round(s.confidence * 100)}%
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

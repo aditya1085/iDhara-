@@ -5,24 +5,36 @@ import {
 import {
   DataEnvelope,
   DataProvenance,
+  InjectedObservationState,
   ProductMode,
   ScenarioParameters,
+  SensorFreshnessState,
   SensorNode,
 } from '../types/idhara';
 
+export const DEFAULT_INJECTED_OBSERVATIONS: InjectedObservationState = {
+  extraRainfallMmHr: 0,
+  sensorWaterLevelBoostM: {},
+  sensorFailureState: {
+    'SEN-WL-05': 'STALE', // Default demonstration: Water Sensor B (Harsiddhi) STALE (8 minutes ago)
+    'SEN-WL-04': 'SUSPECT', // Default demonstration: Water Sensor C (Sarwate) SUSPECT (abnormal spike)
+  },
+  officialRoadOverrides: {},
+  crowdReportsByRoad: {},
+};
+
 /**
  * Generates deterministic provenance metadata for any entity or API envelope.
- * Never claims simulated or mock data is real live municipal telemetry.
  */
 export function createProvenance(
   mode: ProductMode,
   confidence: number,
   timelineHourOffset: number = 0
 ): DataProvenance {
-  const baseAnchor = new Date('2026-10-07T14:30:00.000Z');
+  const baseAnchor = new Date('2026-10-07T18:42:15.000Z');
   const offsetMs = timelineHourOffset * 3600 * 1000;
   const generatedDate = new Date(baseAnchor.getTime() + offsetMs);
-  const dataAsOfDate = new Date(generatedDate.getTime() - 90 * 1000); // 90s ingestion lag
+  const dataAsOfDate = new Date(generatedDate.getTime() - 12 * 1000);
 
   return {
     mode,
@@ -59,46 +71,108 @@ export function wrapInEnvelope<T>(
 }
 
 /**
- * Synthesizes sensor readings across the 10 Indore pilot gauges based on current scenario parameters.
+ * Synthesizes sensor readings across the 10 Indore pilot gauges based on current scenario parameters
+ * AND any real-time injected observations from the Live Feed Simulator.
  */
-export function ingestSensorTelemetry(params: ScenarioParameters): SensorNode[] {
-  const rainFactor = params.rainfallIntensityMmHr / 50;
+export function ingestSensorTelemetry(
+  params: ScenarioParameters,
+  injected: InjectedObservationState = DEFAULT_INJECTED_OBSERVATIONS
+): SensorNode[] {
+  const effectiveRainMmHr =
+    params.rainfallIntensityMmHr + injected.extraRainfallMmHr;
+  const rainFactor = effectiveRainMmHr / 50;
   const blockageFactor = params.drainageBlockagePct / 40;
   const inflowFactor = params.upstreamKahnInflowMultiplier;
 
   return BASE_SENSORS.map((s, idx) => {
-    const isDroppedOut = idx >= BASE_SENSORS.length - params.sensorDropoutCount;
-    const isDrifting = !isDroppedOut && idx === 3 && params.drainageBlockagePct > 45;
+    const isDroppedBySlider =
+      idx >= BASE_SENSORS.length - params.sensorDropoutCount;
+    const injectedFailure = injected.sensorFailureState[s.id];
+    const waterBoost = injected.sensorWaterLevelBoostM[s.id] ?? 0;
 
     let currentValue = s.baseValue;
     if (s.type === 'RAIN_GAUGE') {
-      // Spatial micro-variation across the 5x5 km catchment
-      const spatialMultiplier = 0.92 + ((idx % 3) * 0.07);
-      currentValue = Number((params.rainfallIntensityMmHr * spatialMultiplier).toFixed(1));
+      const spatialMultiplier = 0.92 + (idx % 3) * 0.07;
+      currentValue = Number((effectiveRainMmHr * spatialMultiplier).toFixed(1));
     } else if (s.type === 'WATER_LEVEL_ULTRASONIC') {
       const surge =
-        (s.baseValue * 0.55 * rainFactor) +
-        (s.baseValue * 0.28 * blockageFactor) +
-        (s.baseValue * 0.22 * (inflowFactor - 1));
+        s.baseValue * 0.55 * rainFactor +
+        s.baseValue * 0.28 * blockageFactor +
+        s.baseValue * 0.22 * (inflowFactor - 1) +
+        waterBoost;
       currentValue = Number(Math.max(0.1, s.baseValue * 0.5 + surge).toFixed(2));
     } else if (s.type === 'FLOW_DISCHARGE') {
       currentValue = Number(
-        Math.round(s.baseValue * (0.45 + 0.55 * rainFactor) * inflowFactor)
+        Math.round(
+          s.baseValue * (0.45 + 0.55 * rainFactor) * inflowFactor +
+            waterBoost * 25
+        )
       );
     }
 
+    // Determine Data Quality Freshness State: FRESH | STALE | SUSPECT | MISSING
+    let freshnessState: SensorFreshnessState = 'FRESH';
+    if (isDroppedBySlider || injectedFailure === 'MISSING') {
+      freshnessState = 'MISSING';
+    } else if (injectedFailure === 'STALE') {
+      freshnessState = 'STALE';
+    } else if (
+      injectedFailure === 'SUSPECT' ||
+      (idx === 3 && params.drainageBlockagePct > 55)
+    ) {
+      freshnessState = 'SUSPECT';
+    }
+
+    let lastHeartbeatSecAgo = 24 + ((idx * 9) % 32); // e.g. 42 seconds ago
+    if (s.id === 'SEN-RG-01' && freshnessState === 'FRESH') {
+      lastHeartbeatSecAgo = 42;
+    }
+
+    let lastSeenLabel = `${lastHeartbeatSecAgo} seconds ago`;
+    let diagnosticNote = 'Nominal packet stream · verified';
+
+    if (freshnessState === 'STALE') {
+      lastHeartbeatSecAgo = 480; // 8 minutes ago
+      lastSeenLabel = '8 minutes ago';
+      diagnosticNote = 'Delayed telemetry packet (>5 min threshold)';
+    } else if (freshnessState === 'SUSPECT') {
+      lastHeartbeatSecAgo = 19;
+      lastSeenLabel = '19 seconds ago';
+      diagnosticNote = 'abnormal spike (+0.48m ultrasonic jump)';
+    } else if (freshnessState === 'MISSING') {
+      lastHeartbeatSecAgo = 1860;
+      lastSeenLabel = '31 minutes ago (offline)';
+      diagnosticNote = 'Sensor heartbeat missing · fallback to terrain model';
+    } else if (waterBoost > 0) {
+      lastHeartbeatSecAgo = 6;
+      lastSeenLabel = '6 seconds ago';
+      diagnosticNote = `Live stage surge (+${waterBoost.toFixed(2)}m observed)`;
+    }
+
+    // Map to legacy status for existing components
     let status: SensorNode['status'] = 'NOMINAL';
-    if (isDroppedOut) {
+    if (freshnessState === 'MISSING' || freshnessState === 'STALE') {
       status = 'STALE';
     } else if (currentValue >= s.criticalThreshold) {
       status = 'CRITICAL_THRESHOLD';
-    } else if (isDrifting || currentValue >= s.warningThreshold) {
+    } else if (freshnessState === 'SUSPECT' || currentValue >= s.warningThreshold) {
       status = 'DRIFTING';
     }
 
-    const lastHeartbeatSecAgo = isDroppedOut ? 1420 : 18 + (idx * 7) % 45;
-    const sensorConfidence = isDroppedOut ? 0.42 : isDrifting ? 0.74 : 0.93;
-    const prov = createProvenance(params.mode, sensorConfidence, params.timelineHourOffset);
+    const sensorConfidence =
+      freshnessState === 'MISSING'
+        ? 0.32
+        : freshnessState === 'STALE'
+        ? 0.56
+        : freshnessState === 'SUSPECT'
+        ? 0.64
+        : 0.94;
+
+    const prov = createProvenance(
+      params.mode,
+      sensorConfidence,
+      params.timelineHourOffset
+    );
 
     return {
       ...prov,
@@ -115,9 +189,19 @@ export function ingestSensorTelemetry(params: ScenarioParameters): SensorNode[] 
       warningThreshold: s.warningThreshold,
       criticalThreshold: s.criticalThreshold,
       status,
+      freshnessState,
+      lastSeenLabel,
+      diagnosticNote,
       lastHeartbeatSecAgo,
-      batteryPct: 82 + ((idx * 5) % 17),
-      packetSuccessRatePct: isDroppedOut ? 48.5 : isDrifting ? 86.2 : 99.1,
+      batteryPct: freshnessState === 'MISSING' ? 12 : 84 + ((idx * 5) % 15),
+      packetSuccessRatePct:
+        freshnessState === 'MISSING'
+          ? 0
+          : freshnessState === 'STALE'
+          ? 68.4
+          : freshnessState === 'SUSPECT'
+          ? 81.5
+          : 99.2,
     };
   });
 }

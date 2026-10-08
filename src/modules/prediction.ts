@@ -5,12 +5,16 @@ import {
   FloodDriver,
   FloodRiskCell,
   FloodSeverity,
+  InjectedObservationState,
   ScenarioParameters,
   SensorNode,
   WarningHysteresisState,
   WarningLevel,
 } from '../types/idhara';
-import { createProvenance } from './dataIngestion';
+import {
+  createProvenance,
+  DEFAULT_INJECTED_OBSERVATIONS,
+} from './dataIngestion';
 import { computeCellUncertainty } from './uncertainty';
 
 /**
@@ -304,19 +308,29 @@ export function predictFloodRiskGrid(
   sensors: SensorNode[],
   previousCellWarnings?: Map<string, WarningLevel>,
   stableTicksElapsed: number = 0,
+  injected: InjectedObservationState = DEFAULT_INJECTED_OBSERVATIONS,
   engine: PredictionModelAdapter = defaultPredictionEngine
 ): FloodRiskCell[] {
+  const effectiveRainIntensity =
+    params.rainfallIntensityMmHr + injected.extraRainfallMmHr;
+
   return BASE_GRID_CELLS.map((cell) => {
     // Spatial micro-variation in rainfall across 5x5 km catchment
     const spatialRainVar = 0.94 + (((cell.row * 3 + cell.col * 5) % 7) * 0.02);
     const rainfall_1h = Number(
-      (params.rainfallIntensityMmHr * spatialRainVar).toFixed(1)
+      (effectiveRainIntensity * spatialRainVar).toFixed(1)
     );
     const rainfall_3h = Number(
       (rainfall_1h * Math.min(3, Math.max(1.4, params.durationHours * 0.82))).toFixed(1)
     );
     const rainfall_6h = Number((rainfall_3h * 1.28).toFixed(1));
     const rainfall_24h = Number((rainfall_6h * 1.35).toFixed(1));
+
+    // Check if a nearby ultrasonic sensor has an injected water-level surge
+    const directSensor = sensors.find((s) => s.cellId === cell.id);
+    const sensorSurgeM = directSensor
+      ? injected.sensorWaterLevelBoostM[directSensor.id] ?? 0
+      : 0;
 
     // Compute flow_accumulation from proximity to Kahn/Saraswati rivers, upstream multiplier, and depression
     const riverProxNorm =
@@ -332,7 +346,8 @@ export function predictFloodRiskGrid(
       Math.min(
         1,
         (riverProxNorm * 0.6 + elevNorm * 0.4) *
-          Math.min(1.25, params.upstreamKahnInflowMultiplier * 0.9)
+          Math.min(1.25, params.upstreamKahnInflowMultiplier * 0.9) +
+          sensorSurgeM * 0.28
       ).toFixed(2)
     );
 

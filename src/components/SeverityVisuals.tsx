@@ -4,8 +4,49 @@ import {
   FloodSeverity,
   ProductMode,
   RoadStatus,
+  SensorFreshnessState,
   WarningLevel,
 } from '../types/idhara';
+
+export const SENSOR_FRESHNESS_META: Record<
+  SensorFreshnessState,
+  {
+    label: SensorFreshnessState;
+    glyph: string;
+    textColor: string;
+    borderColor: string;
+    bgTint: string;
+  }
+> = {
+  FRESH: {
+    label: 'FRESH',
+    glyph: '●',
+    textColor: 'text-emerald-400',
+    borderColor: 'border-emerald-500/50',
+    bgTint: 'bg-emerald-950/30',
+  },
+  STALE: {
+    label: 'STALE',
+    glyph: '◷',
+    textColor: 'text-amber-300',
+    borderColor: 'border-amber-500/50',
+    bgTint: 'bg-amber-950/30',
+  },
+  SUSPECT: {
+    label: 'SUSPECT',
+    glyph: '▲',
+    textColor: 'text-orange-400',
+    borderColor: 'border-orange-500/60',
+    bgTint: 'bg-orange-950/35',
+  },
+  MISSING: {
+    label: 'MISSING',
+    glyph: '✖',
+    textColor: 'text-rose-400',
+    borderColor: 'border-rose-500/60',
+    bgTint: 'bg-rose-950/35',
+  },
+};
 
 export const WARNING_LEVEL_META: Record<
   WarningLevel,
@@ -145,29 +186,29 @@ export const ROAD_STATUS_META: Record<
     dashArray: string;
   }
 > = {
-  [RoadStatus.CLOSED_INUNDATED]: {
-    label: 'CLOSED · INUNDATED',
+  [RoadStatus.CLOSED]: {
+    label: 'CLOSED',
     glyph: '✖',
     textColor: 'text-rose-400',
     strokeColor: '#EF4444',
     dashArray: '4 4',
   },
-  [RoadStatus.RESTRICTED_SHALLOW]: {
-    label: 'RESTRICTED · HIGH-CLEARANCE ONLY',
+  [RoadStatus.LIKELY_FLOODED]: {
+    label: 'LIKELY_FLOODED',
     glyph: '▲',
     textColor: 'text-amber-400',
     strokeColor: '#F97316',
     dashArray: '8 4',
   },
-  [RoadStatus.CAUTION_WATERLOGGING]: {
-    label: 'CAUTION · CURB WATERLOGGING',
+  [RoadStatus.AT_RISK]: {
+    label: 'AT_RISK',
     glyph: '◆',
     textColor: 'text-yellow-300',
     strokeColor: '#EAB308',
     dashArray: 'none',
   },
   [RoadStatus.OPEN]: {
-    label: 'OPEN · PASSABLE',
+    label: 'OPEN',
     glyph: '●',
     textColor: 'text-emerald-400',
     strokeColor: '#10B981',
