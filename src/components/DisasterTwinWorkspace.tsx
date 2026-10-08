@@ -53,6 +53,8 @@ interface DisasterTwinWorkspaceProps {
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
   onSelectStage?: (stage: DisasterStage) => void;
+  isPlayingTimeline?: boolean;
+  onTogglePlayTimeline?: () => void;
   onReturnToLive?: () => void;
 }
 
@@ -70,6 +72,8 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   selectedTarget,
   onSelectTarget,
   onSelectStage,
+  isPlayingTimeline = false,
+  onTogglePlayTimeline,
   onReturnToLive,
 }) => {
   // Primary interactive Scenario A controls
@@ -616,43 +620,74 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
 
       {/* 0B. AUTHORITATIVE FOUR-STAGE STATE MACHINE SWITCHER */}
       <div className="p-2.5 bg-[#0A0F1A] border border-cyan-500/40 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-cyan-400 font-bold text-[11px] tracking-wide">
             DISASTER TWIN STAGE:
           </span>
           <span className="px-2 py-0.5 bg-cyan-950 border border-cyan-500/60 text-cyan-200 font-bold">
             {stageInfo.label}
           </span>
-          <span className="text-slate-400 text-[10.5px] hidden md:inline">
+          {isPlayingTimeline ? (
+            <span className="px-2 py-0.5 bg-cyan-950/90 border border-cyan-400 text-cyan-200 text-[10.5px] font-bold animate-pulse whitespace-nowrap flex items-center gap-1.5 shadow-[0_0_8px_rgba(34,211,238,0.3)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+              ● RUNNING (STAGE {stageInfo.num}/4)
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 bg-[#0D1320] border border-slate-700 text-slate-400 text-[10px] whitespace-nowrap">
+              ● SYNCED
+            </span>
+          )}
+          <span className="text-slate-400 text-[10.5px] hidden xl:inline">
             — {stageInfo.focus}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-1">
-          {(
-            [
-              DisasterStage.EARLY_WARNING,
-              DisasterStage.PRE_DISASTER_SCENARIO,
-              DisasterStage.REAL_TIME_ONGOING,
-              DisasterStage.POST_DISASTER_LEARNING,
-            ] as const
-          ).map((st) => {
-            const isCurrent = baselineParams.stage === st;
-            const meta = DISASTER_STAGE_INFO[st];
-            return (
-              <button
-                key={st}
-                type="button"
-                onClick={() => onSelectStage?.(st)}
-                className={`px-2.5 py-1 text-[11px] font-mono border transition-colors whitespace-nowrap ${
-                  isCurrent
-                    ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow-[0_0_8px_rgba(34,211,238,0.3)]'
-                    : 'bg-[#0D1320] border-slate-700 text-slate-300 hover:text-white hover:border-slate-500'
-                }`}
-              >
-                {meta.label}
-              </button>
-            );
-          })}
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onTogglePlayTimeline && (
+            <button
+              type="button"
+              onClick={onTogglePlayTimeline}
+              className={`px-3 py-1 text-[11px] font-mono font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                isPlayingTimeline
+                  ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.3)]'
+                  : 'bg-cyan-950/80 hover:bg-cyan-900 border-cyan-500/60 text-cyan-200'
+              }`}
+              title={isPlayingTimeline ? 'Pause Twin Progression' : 'Run Twin Stages Progression'}
+            >
+              {isPlayingTimeline ? '❚❚ Pause Twin Stage' : '▶ Run Twin Stages'}
+            </button>
+          )}
+
+          <div className="flex items-center gap-1">
+            {(
+              [
+                DisasterStage.EARLY_WARNING,
+                DisasterStage.PRE_DISASTER_SCENARIO,
+                DisasterStage.REAL_TIME_ONGOING,
+                DisasterStage.POST_DISASTER_LEARNING,
+              ] as const
+            ).map((st) => {
+              const isCurrent = baselineParams.stage === st;
+              const meta = DISASTER_STAGE_INFO[st];
+              return (
+                <button
+                  key={st}
+                  type="button"
+                  onClick={() => onSelectStage?.(st)}
+                  className={`px-2.5 py-1 text-[11px] font-mono border transition-all whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                    isCurrent
+                      ? 'bg-cyan-500 text-slate-950 border-cyan-300 font-bold shadow-[0_0_8px_rgba(34,211,238,0.3)]'
+                      : 'bg-[#0D1320] border-slate-700 text-slate-300 hover:text-white hover:border-slate-500'
+                  }`}
+                >
+                  {isCurrent && isPlayingTimeline && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-950 animate-ping"></span>
+                  )}
+                  <span>{meta.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 

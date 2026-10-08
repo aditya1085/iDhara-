@@ -1116,29 +1116,30 @@ export default function App() {
     [params.mode, dataHealthReport.confidence, params.timelineHourOffset, cells.length, roads.length]
   );
 
-  // Timeline Autoplay Handler (Supports 1x / 2x / 5x speed)
-  useEffect(() => {
-    if (activeTab !== 'event-replay' && isPlayingTimeline) {
-      setIsPlayingTimeline(false);
-    }
-  }, [activeTab, isPlayingTimeline]);
-
+  // Timeline Autoplay Handler (Supports 1x / 2x / 5x speed across all views)
   useEffect(() => {
     if (!isPlayingTimeline) return;
-    const intervalMs = Math.max(440, Math.round(2200 / replaySpeed));
+    const intervalMs = Math.max(350, Math.round(1400 / replaySpeed));
     const timer = window.setInterval(() => {
       updateParamsWithHysteresis((prev) => {
-        if (prev.timelineHourOffset >= 4) {
-          // Reached end of event timeline: stop playback rather than looping infinitely
-          setIsPlayingTimeline(false);
-          return prev;
-        }
-        const nextHour = prev.timelineHourOffset + 1;
+        // Continuous simulation cycle: cycles -3 -> +4, then wraps cleanly to -3
+        const nextHour = prev.timelineHourOffset >= 4 ? -3 : prev.timelineHourOffset + 1;
         return resolveTimelineStepParameters(prev, nextHour);
       });
     }, intervalMs);
     return () => window.clearInterval(timer);
   }, [isPlayingTimeline, replaySpeed]);
+
+  const handleTogglePlayTimeline = () => {
+    setIsPlayingTimeline((prev) => {
+      const willPlay = !prev;
+      if (willPlay && params.timelineHourOffset >= 4) {
+        // Rewind to start if already at the end
+        updateParamsWithHysteresis((p) => resolveTimelineStepParameters(p, -3));
+      }
+      return willPlay;
+    });
+  };
 
   const handleStepTimeline = (deltaHours: number) => {
     setIsPlayingTimeline(false);
@@ -1548,7 +1549,24 @@ export default function App() {
               <div className="pt-2 mt-2 border-t border-slate-800/80">
                 <div className="px-2.5 py-1.5 font-mono text-[10px] text-cyan-400 font-semibold tracking-wider flex items-center justify-between">
                   <span>TWIN STAGE</span>
-                  <span className="text-[9px] text-emerald-400">● SYNCED</span>
+                  <div className="flex items-center gap-1.5">
+                    {isPlayingTimeline ? (
+                      <span className="text-[9px] text-cyan-300 font-bold animate-pulse">● RUNNING</span>
+                    ) : (
+                      <span className="text-[9px] text-emerald-400">● SYNCED</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleTogglePlayTimeline();
+                      }}
+                      className="px-1.5 py-0.5 border border-cyan-500/50 bg-cyan-950/70 hover:bg-cyan-900 text-cyan-300 text-[9px] font-bold cursor-pointer"
+                      title={isPlayingTimeline ? 'Pause Twin Progression' : 'Run Twin Progression'}
+                    >
+                      {isPlayingTimeline ? '❚❚' : '▶'}
+                    </button>
+                  </div>
                 </div>
                 {(
                   [
@@ -1564,14 +1582,19 @@ export default function App() {
                       key={item.st}
                       type="button"
                       onClick={() => handleSelectStage(item.st)}
-                      className={`w-full text-left px-2.5 py-1 font-mono text-[11px] transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                      className={`w-full text-left px-2.5 py-1 font-mono text-[11px] transition-colors whitespace-nowrap flex items-center justify-between ${
                         active
                           ? 'text-cyan-300 font-bold bg-cyan-950/60 border-l-2 border-cyan-400'
                           : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
                       }`}
                     >
-                      <span className="text-[10px]">{active ? '▶' : '·'}</span>
-                      <span>{item.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px]">{isPlayingTimeline && active ? '●' : active ? '▶' : '·'}</span>
+                        <span>{item.label}</span>
+                      </div>
+                      {active && isPlayingTimeline && (
+                        <span className="text-[8.5px] text-cyan-300 animate-pulse font-bold">RUNNING</span>
+                      )}
                     </button>
                   );
                 })}
@@ -1600,6 +1623,8 @@ export default function App() {
               selectedTarget={selectedTarget}
               onSelectTarget={setSelectedTarget}
               onSelectStage={handleSelectStage}
+              isPlayingTimeline={isPlayingTimeline}
+              onTogglePlayTimeline={handleTogglePlayTimeline}
               onReturnToLive={() => {
                 setParams((prev) => ({ ...prev, mode: ProductMode.LIVE }));
                 setActiveTab('overview');
@@ -1998,11 +2023,25 @@ export default function App() {
           </button>
           <button
             type="button"
-            onClick={() => setIsPlayingTimeline((p) => !p)}
-            className="px-2.5 py-1 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-200 font-semibold transition-colors"
+            onClick={handleTogglePlayTimeline}
+            className={`px-3 py-1 font-bold border transition-colors flex items-center gap-1.5 cursor-pointer ${
+              isPlayingTimeline
+                ? 'bg-amber-500/25 border-amber-400 text-amber-200 shadow-[0_0_8px_rgba(251,191,36,0.3)]'
+                : 'bg-cyan-950/70 hover:bg-cyan-900 border-cyan-500/60 text-cyan-200'
+            }`}
           >
             {isPlayingTimeline ? '❚❚ Pause' : '▶ Play'}
           </button>
+          {isPlayingTimeline ? (
+            <span className="px-2 py-0.5 bg-cyan-950/90 border border-cyan-400 text-cyan-200 text-[10.5px] font-bold animate-pulse whitespace-nowrap flex items-center gap-1.5 shadow-[0_0_8px_rgba(34,211,238,0.3)]">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>
+              ● RUNNING ({params.timelineHourOffset >= 0 ? `T+${params.timelineHourOffset}h` : `T${params.timelineHourOffset}h`} · {DISASTER_STAGE_INFO[params.stage]?.label ?? 'Simulation'})
+            </span>
+          ) : (
+            <span className="px-2 py-0.5 bg-[#0D1320] border border-slate-700 text-slate-400 text-[10px] whitespace-nowrap">
+              ● IDLE / SYNCED
+            </span>
+          )}
           <button
             type="button"
             onClick={() => handleStepTimeline(1)}
