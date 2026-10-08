@@ -38,8 +38,9 @@ interface IndoreFloodMapProps {
   shelters: Shelter[];
   selectedArea: FloodRiskCell | null;
   selectedTarget: MapInspectionTarget | null;
-  onSelectTarget: (target: MapInspectionTarget) => void;
+  onSelectTarget: (target: MapInspectionTarget | null) => void;
   onSelectArea: (area: FloodRiskCell) => void;
+  onDeselectArea?: () => void;
   activeRoute: RouteRecommendation | null;
   evacuationRoute: EvacuationPlanItem | null;
   routeStatus?: 'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_ROUTE';
@@ -47,6 +48,7 @@ interface IndoreFloodMapProps {
   onRequestRoute?: () => void;
   onRequestEvacuation?: () => void;
   onClearRoute?: () => void;
+  onDismissRouteUpdate?: () => void;
   routeUpdateNotification?: RouteUpdateNotification | null;
   activeTab?: NavigationTab;
 }
@@ -70,6 +72,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   selectedTarget,
   onSelectTarget,
   onSelectArea,
+  onDeselectArea,
   activeRoute,
   evacuationRoute,
   routeStatus = 'IDLE',
@@ -77,6 +80,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   onRequestRoute,
   onRequestEvacuation,
   onClearRoute,
+  onDismissRouteUpdate,
   routeUpdateNotification,
   activeTab,
 }) => {
@@ -88,8 +92,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     patterns: true,
     drainage: true,
     roads: true,
-    activeRoute: true,
-    evacuationRoute: true,
+    routes: true,
     rainGauges: true,
     waterLevelSensors: true,
     assetsAndShelters: true,
@@ -104,18 +107,26 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
+  const layerMenuRef = useRef<HTMLDivElement>(null);
   const [isRouteErrorDismissed, setIsRouteErrorDismissed] = useState<boolean>(false);
   const [isLegendCollapsed, setIsLegendCollapsed] = useState<boolean>(false);
-  const [isZoomControlsVisible, setIsZoomControlsVisible] = useState<boolean>(false);
+  const [isScaleVisible, setIsScaleVisible] = useState<boolean>(false);
 
-  // Close search dropdown on click outside
+  // Close search dropdown and layer dropdown on click outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
       if (
         searchContainerRef.current &&
-        !searchContainerRef.current.contains(e.target as Node)
+        !searchContainerRef.current.contains(target)
       ) {
         setIsSearchOpen(false);
+      }
+      if (
+        layerMenuRef.current &&
+        !layerMenuRef.current.contains(target)
+      ) {
+        setShowLayerMenu(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -151,9 +162,6 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   const toggleLayer = (key: keyof typeof layers) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   };
-
-  // Zoom controls (+, −) must not appear by default at 100% zoom; only when zoomed or hovering
-  const showZoomButtons = zoom !== 1 || isZoomControlsVisible;
 
   // Search index across all 64 study-area localities, plus roads, sensors, shelters, and critical assets
   const searchResults = useMemo(() => {
@@ -293,7 +301,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   return (
     <div className="relative flex flex-col w-full h-full bg-[#05080E] border border-slate-800/90 select-none overflow-hidden">
       {/* Top Map Toolbar: Search, Pilot Overview Button, 5-Metric Surface Switcher, Layer & Zoom Controls */}
-      <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[#0A0F1A] border-b border-slate-800/90 z-20 shrink-0 overflow-x-auto">
+      <div className="flex items-center justify-between gap-2 px-3 h-10 min-h-[40px] max-h-[40px] bg-[#0A0F1A] border-b border-slate-800/90 z-30 shrink-0 relative overflow-visible">
         {/* Left: Map Search Input + Pilot Overview Reset */}
         <div ref={searchContainerRef} className="flex items-center gap-1.5 relative shrink-0">
           <div className="relative w-44 sm:w-60">
@@ -334,7 +342,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </div>
 
             {isSearchOpen && (
-              <div className="absolute left-0 top-full mt-1 w-80 sm:w-96 bg-[#0B101B] border border-slate-700 shadow-2xl z-40 max-h-72 overflow-y-auto">
+              <div
+                className="absolute left-0 top-full mt-1 w-80 sm:w-96 bg-[#0B101B] border border-slate-700 shadow-2xl z-50 max-h-72 overflow-y-auto"
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
                 <div className="sticky top-0 bg-[#0E1524] px-3 py-1.5 border-b border-slate-800 text-[10.5px] font-mono text-cyan-300 flex items-center justify-between z-10">
                   <span>
                     {searchQuery.trim()
@@ -399,7 +411,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         </div>
 
         {/* Center: 5-Way Map Surface Switcher (Flood probability | Severity | Uncertainty | Data confidence | Rainfall) */}
-        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 overflow-x-auto no-scrollbar min-w-0 shrink">
           {MAP_METRIC_OPTIONS.map((opt) => {
             const active = metricOverlay === opt.id;
             return (
@@ -407,10 +419,10 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 key={opt.id}
                 type="button"
                 onClick={() => setMetricOverlay(opt.id)}
-                className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+                className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap cursor-pointer border ${
                   active
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 font-semibold'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 font-semibold'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
                 {opt.label}
@@ -420,100 +432,107 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         </div>
 
         {/* Right: Layer Control Dropdown & Zoom Controls */}
-        <div className="flex items-center gap-2 font-mono text-xs relative">
+        <div ref={layerMenuRef} className="flex items-center gap-2 font-mono text-xs relative shrink-0">
           <button
             type="button"
             onClick={() => setShowLayerMenu((v) => !v)}
-            className={`px-2.5 py-1 border text-[11px] whitespace-nowrap transition-colors ${
+            className={`px-2.5 py-1 border text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
               showLayerMenu
                 ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
                 : 'bg-[#0D1422] border-slate-700 text-slate-200 hover:bg-slate-800'
             }`}
           >
-            ≡ Layers ({Object.values(layers).filter(Boolean).length}/13)
+            ≡ Layers ({Object.values(layers).filter(Boolean).length}/{Object.keys(layers).length})
           </button>
 
           {showLayerMenu && (
-            <div className="absolute right-24 top-full mt-1 w-64 bg-[#0B101B] border border-slate-700 shadow-2xl p-2.5 z-30 space-y-1.5 text-[11px]">
-              <div className="flex items-center justify-between text-slate-400 pb-1 border-b border-slate-800">
-                <span>GEOSPATIAL LAYERS</span>
+            <div
+              className="absolute right-0 top-full mt-1 w-72 sm:w-80 bg-[#0B101B] border border-slate-700 shadow-2xl p-2.5 z-50 text-[11px] max-h-[min(75vh,480px)] flex flex-col"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between text-slate-300 pb-2 mb-1 border-b border-slate-800 font-mono shrink-0">
+                <span className="font-bold text-cyan-300">
+                  GEOSPATIAL LAYERS ({Object.values(layers).filter(Boolean).length}/{Object.keys(layers).length})
+                </span>
                 <button
                   type="button"
                   onClick={() => setShowLayerMenu(false)}
-                  className="text-slate-400 hover:text-white"
+                  className="text-slate-400 hover:text-white px-1.5 py-0.5 hover:bg-slate-800 font-mono text-xs cursor-pointer"
+                  title="Close Layers Panel"
                 >
-                  Close
+                  ✕ Close
                 </button>
               </div>
-              {[
-                { key: 'pilotBoundary', label: '5×5 km Pilot Boundary' },
-                { key: 'heatmapGlow', label: 'Continuous Flood Heatmap' },
-                { key: 'riskContours', label: 'Iso-Risk Contours (74% / 52%)' },
-                { key: 'gridCells', label: '64-Cell Risk Matrix' },
-                { key: 'patterns', label: 'Non-Hue Hatch Patterns' },
-                { key: 'drainage', label: 'Kahn & Saraswati Rivers' },
-                { key: 'roads', label: 'Road Network & Barricades' },
-                { key: 'activeRoute', label: 'Emergency Route Corridor' },
-                { key: 'evacuationRoute', label: 'Evacuation Route Corridor' },
-                { key: 'rainGauges', label: 'Rain Gauges (4 AWS)' },
-                { key: 'waterLevelSensors', label: 'Water-Level Sensors (6)' },
-                { key: 'assetsAndShelters', label: 'Hospitals & Relief Shelters' },
-                { key: 'cellLabels', label: 'Ward & Metric Readouts' },
-              ].map((item) => {
-                const active = layers[item.key as keyof typeof layers];
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => toggleLayer(item.key as keyof typeof layers)}
-                    className="w-full flex items-center justify-between px-2 py-1 hover:bg-slate-800/80 text-left"
-                  >
-                    <span className={active ? 'text-slate-100' : 'text-slate-500'}>
-                      {active ? '■' : '□'} {item.label}
-                    </span>
-                    <span className={active ? 'text-cyan-400' : 'text-slate-600'}>
-                      {active ? 'ON' : 'OFF'}
-                    </span>
-                  </button>
-                );
-              })}
+              <div className="overflow-y-auto space-y-1 pr-1 flex-1 min-h-0">
+                {[
+                  { key: 'pilotBoundary', label: '5×5 km Pilot Boundary', desc: 'Study area spatial boundary' },
+                  { key: 'heatmapGlow', label: 'Continuous Flood Heatmap', desc: 'Hydraulic intensity glow' },
+                  { key: 'riskContours', label: 'Iso-Risk Contours (74% / 52%)', desc: 'Critical risk isolines' },
+                  { key: 'gridCells', label: '64-Cell Risk Matrix', desc: 'Hydrological grid cells' },
+                  { key: 'patterns', label: 'Non-Hue Hatch Patterns', desc: 'Accessible pattern fill' },
+                  { key: 'drainage', label: 'Kahn & Saraswati Rivers', desc: 'Natural drainage channels' },
+                  { key: 'roads', label: 'Road Network & Barricades', desc: '18 road corridors & bridges' },
+                  { key: 'routes', label: 'Route & Evacuation Corridors', desc: 'Dispatched emergency & shelter transit' },
+                  { key: 'rainGauges', label: 'Rain Gauges (4 AWS)', desc: 'Automated weather stations' },
+                  { key: 'waterLevelSensors', label: 'Water-Level Sensors (6)', desc: 'Ultrasonic river stage gauges' },
+                  { key: 'assetsAndShelters', label: 'Hospitals & Relief Shelters', desc: 'Critical infrastructure' },
+                  { key: 'cellLabels', label: 'Ward & Metric Readouts', desc: 'Ward codes & risk metrics' },
+                ].map((item) => {
+                  const active = layers[item.key as keyof typeof layers];
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => toggleLayer(item.key as keyof typeof layers)}
+                      className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-slate-800/80 text-left transition-colors cursor-pointer rounded-xs"
+                    >
+                      <div className="flex flex-col min-w-0 pr-2">
+                        <span className={`truncate text-xs font-medium ${active ? 'text-slate-100' : 'text-slate-500'}`}>
+                          {active ? '■' : '□'} {item.label}
+                        </span>
+                        <span className="text-[9.5px] text-slate-500 truncate">
+                          {item.desc}
+                        </span>
+                      </div>
+                      <span className={`shrink-0 font-mono text-[10px] font-bold px-1.5 py-0.5 ${
+                        active
+                          ? 'bg-cyan-950/80 text-cyan-300 border border-cyan-800/60'
+                          : 'bg-slate-900 text-slate-500 border border-slate-800'
+                      }`}>
+                        {active ? 'ON' : 'OFF'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 
-          {/* Zoom Controls: +, − are hidden by default at 100% zoom; shown only when hovering or when zoomed */}
-          <div
-            className="flex items-center bg-[#060911] border border-slate-700 transition-all"
-            onMouseEnter={() => setIsZoomControlsVisible(true)}
-            onMouseLeave={() => setIsZoomControlsVisible(false)}
-          >
-            {showZoomButtons && (
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
-                className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer"
-                title="Zoom Out"
-              >
-                −
-              </button>
-            )}
+          {/* Zoom Controls: +, − are always visible and clickable */}
+          <div className="flex items-center bg-[#060911] border border-slate-700">
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
+              className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer text-xs"
+              title="Zoom Out"
+            >
+              −
+            </button>
             <span
-              className={`px-2 py-1 text-[11px] text-slate-300 tabular-nums ${
-                showZoomButtons ? 'border-x border-slate-800' : ''
-              }`}
+              className="px-2 py-1 text-[11px] text-slate-300 tabular-nums border-x border-slate-800"
               title="Current Zoom Level"
             >
               {Math.round(zoom * 100)}%
             </span>
-            {showZoomButtons && (
-              <button
-                type="button"
-                onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
-                className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer"
-                title="Zoom In"
-              >
-                +
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
+              className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer text-xs"
+              title="Zoom In"
+            >
+              +
+            </button>
           </div>
         </div>
       </div>
@@ -562,6 +581,18 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   ✕ Clear
                 </button>
               )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeselectArea?.();
+                }}
+                className="px-2 py-1 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-slate-400 hover:text-white text-xs font-mono transition-colors cursor-pointer ml-1"
+                title="Close area inspection and return to normal map view"
+                aria-label="Close Area Inspection"
+              >
+                ✕
+              </button>
             </div>
           </div>
         ) : (
@@ -576,7 +607,17 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#160B08]/95 border border-amber-400 px-3 py-2 font-mono text-[11px] shadow-2xl">
             <div className="flex items-center justify-between gap-2 text-amber-300 font-bold border-b border-amber-900/60 pb-1 mb-1">
               <span>⚡ {routeUpdateNotification.bannerTitle}</span>
-              <span className="text-[10px] text-amber-200">{routeUpdateNotification.timestamp}</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-amber-200">{routeUpdateNotification.timestamp}</span>
+                <button
+                  type="button"
+                  onClick={onDismissRouteUpdate}
+                  className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
+                  title="Close route notification"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="text-white font-semibold mt-0.5">
               Reason: “{routeUpdateNotification.reason}”
@@ -683,9 +724,19 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 <span className="w-2 h-2 rounded-full bg-cyan-400" />
                 <span>ROUTE ACTIVE</span>
               </span>
-              <span className="text-[10px] text-cyan-200">
-                {activeRoute.recommendedDistanceKm} km · {activeRoute.recommendedEtaMin} min
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-cyan-200">
+                  {activeRoute.recommendedDistanceKm} km · {activeRoute.recommendedEtaMin} min
+                </span>
+                <button
+                  type="button"
+                  onClick={onClearRoute}
+                  className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
+                  title="Close route result"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="text-slate-100 text-xs font-sans">
               Corridor: <strong className="font-mono text-cyan-200">{activeRoute.originName} → {activeRoute.destinationName}</strong>
@@ -704,9 +755,19 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 <span className="w-2 h-2 rounded-full bg-emerald-400" />
                 <span>EVACUATION ROUTE ACTIVE</span>
               </span>
-              <span className="text-[10px] text-emerald-200">
-                {evacuationRoute.distanceKm} km · ~{evacuationRoute.estimatedClearanceMin} min
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-emerald-200">
+                  {evacuationRoute.distanceKm} km · ~{evacuationRoute.estimatedClearanceMin} min
+                </span>
+                <button
+                  type="button"
+                  onClick={onClearRoute}
+                  className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
+                  title="Close evacuation result"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="text-slate-100 text-xs font-sans">
               To: <strong className="font-mono text-emerald-200">{evacuationRoute.targetShelterName}</strong>
@@ -725,6 +786,14 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
                 <span>NO FEASIBLE EVACUATION PLAN</span>
               </div>
+              <button
+                type="button"
+                onClick={onClearRoute}
+                className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
+                title="Close evacuation result"
+              >
+                ✕
+              </button>
             </div>
             <div className="text-slate-200 text-xs font-sans mb-1.5 leading-snug">
               Evacuation unavailable for {evacuationRoute.sourceLocality}
@@ -737,7 +806,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         <svg
           viewBox="-25 -25 1050 1050"
-          className="w-full h-full max-h-full cursor-crosshair transition-transform duration-150"
+          className="w-full h-full max-h-full cursor-crosshair"
           style={{
             transform: `scale(${zoom}) translate(${panOffset.x}px, ${panOffset.y}px)`,
             transformOrigin: 'center center',
@@ -986,7 +1055,8 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               return (
                 <g
                   key={cell.id}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     onSelectTarget({ type: 'CELL', id: cell.id });
                     onSelectArea(cell);
                   }}
@@ -1302,7 +1372,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             })}
 
           {/* 5. Active Recommended Route Overlay ("Recommended under current data") */}
-          {layers.activeRoute && activeRoute && (
+          {layers.routes && activeRoute && (
             <g pointerEvents="none">
               {/* Invalidated Previous Route or Blocked Dry Baseline */}
               {(routeUpdateNotification?.previousRouteRoadIds?.length
@@ -1521,7 +1591,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           )}
 
           {/* 5b. Evacuation Route Corridor Overlay (Distinct Emerald Corridor along road network) */}
-          {layers.evacuationRoute && evacuationRoute && evacuationRoute.routeRoadIds.length > 0 && (
+          {layers.routes && evacuationRoute && evacuationRoute.routeRoadIds.length > 0 && (
             <g pointerEvents="none">
               {evacuationRoute.routeRoadIds.map((rId, idx) => {
                 const r = roads.find((item) => item.id === rId);
@@ -1982,29 +2052,31 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           </div>
         )}
 
-        {/* Floating Bottom-Right Scale Bar */}
-        <div className="absolute bottom-3 right-3 bg-[#090D16]/95 border border-slate-800 px-3 py-1.5 text-[11px] font-mono text-slate-300 pointer-events-none flex flex-col items-end gap-1">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400">SCALE:</span>
-            <div className="w-20 h-1.5 border-x border-b border-slate-300 relative">
-              <span className="absolute -top-3.5 left-0 text-[9px]">0</span>
-              <span className="absolute -top-3.5 right-0 text-[9px]">1.0 km</span>
+        {/* Floating Bottom-Right Scale Bar (Hidden by default) */}
+        {isScaleVisible && (
+          <div className="absolute bottom-3 right-3 bg-[#090D16]/95 border border-slate-800 px-3 py-1.5 text-[11px] font-mono text-slate-300 pointer-events-none flex flex-col items-end gap-1">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">SCALE:</span>
+              <div className="w-20 h-1.5 border-x border-b border-slate-300 relative">
+                <span className="absolute -top-3.5 left-0 text-[9px]">0</span>
+                <span className="absolute -top-3.5 right-0 text-[9px]">1.0 km</span>
+              </div>
+            </div>
+            <div className="text-[10px] text-slate-400 tabular-nums">
+              Indore Pilot · {PILOT_BOUNDS.minLat}°N–{PILOT_BOUNDS.maxLat}°N
             </div>
           </div>
-          <div className="text-[10px] text-slate-400 tabular-nums">
-            Indore Pilot · {PILOT_BOUNDS.minLat}°N–{PILOT_BOUNDS.maxLat}°N
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Bottom Live Crosshair Probe Bar */}
-      <div className="px-3 py-1.5 bg-[#090D16] border-t border-slate-800/90 font-mono text-[11px] text-slate-300 flex items-center justify-between gap-2 truncate">
-        <span className="truncate">
+      <div className="h-7 min-h-[28px] max-h-[28px] px-3 bg-[#090D16] border-t border-slate-800/90 font-mono text-[11px] text-slate-300 flex items-center justify-between gap-2 overflow-hidden shrink-0">
+        <span className="truncate min-w-0 flex-1">
           {hoveredInfo
             ? `PROBE: ${hoveredInfo}`
             : 'EOC MAP READY: Click any cell to inspect Flood Probability, Severity, Confidence, Expected Onset, and Top Drivers.'}
         </span>
-        <span className="text-slate-500 shrink-0">Deterministic Weighted Model</span>
+        <span className="text-slate-500 shrink-0 text-[10.5px]">Deterministic Weighted Model</span>
       </div>
     </div>
   );

@@ -361,7 +361,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                 Click entry to focus target
               </span>
             </div>
-            <div className="max-h-24 overflow-y-auto space-y-1 text-[11px] tabular-nums pr-1">
+            <div className="space-y-1 text-[11px] tabular-nums">
               {activityFeed.slice(0, 5).map((entry) => (
                 <button
                   key={entry.id}

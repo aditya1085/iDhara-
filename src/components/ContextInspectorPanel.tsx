@@ -34,7 +34,7 @@ import {
 
 interface ContextInspectorPanelProps {
   selectedTarget: MapInspectionTarget | null;
-  onSelectTarget: (target: MapInspectionTarget) => void;
+  onSelectTarget: (target: MapInspectionTarget | null) => void;
   cells: FloodRiskCell[];
   roads: RoadSegmentState[];
   sensors: SensorNode[];
@@ -727,8 +727,19 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       {inspectedCell.localityName}
                     </h3>
                   </div>
-                  <div className="shrink-0">
+                  <div className="shrink-0 flex items-center gap-1.5">
                     <WarningLevelIndicator level={inspectedCell.warningLevel} showDirective={false} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectTarget(null);
+                        setPanelTab('SITUATION');
+                      }}
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-mono cursor-pointer"
+                      title="Close inspection details"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center justify-between font-mono text-[10.5px] text-slate-400 tabular-nums gap-1">
@@ -950,12 +961,27 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               <div className="p-3.5 space-y-3.5 min-w-0">
                 {/* PRIMARY HEADER: LOCATION & STATE */}
                 <div className="border-b border-slate-800 pb-2.5">
-                  <div className="font-mono text-[10px] text-slate-400 break-words">
-                    CORRIDOR: {inspectedRoad.id} · {inspectedRoad.corridorType} · {inspectedRoad.lengthKm} km
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[10px] text-slate-400 break-words">
+                        CORRIDOR: {inspectedRoad.id} · {inspectedRoad.corridorType} · {inspectedRoad.lengthKm} km
+                      </div>
+                      <h3 className="text-base font-bold text-white mt-0.5 break-words">
+                        {inspectedRoad.name}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectTarget(null);
+                        setPanelTab('SITUATION');
+                      }}
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-mono cursor-pointer shrink-0"
+                      title="Close inspection details"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <h3 className="text-base font-bold text-white mt-0.5 break-words">
-                    {inspectedRoad.name}
-                  </h3>
                   <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <span className="font-mono text-[10px] text-slate-400">STATE:</span>
@@ -1107,12 +1133,27 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             {inspectedSensor && (
               <div className="p-4 space-y-4 min-w-0">
                 <div className="border-b border-slate-800/80 pb-3">
-                  <div className="font-mono text-xs text-slate-400 break-words">
-                    {inspectedSensor.id} · {inspectedSensor.type} · Host Cell {inspectedSensor.cellId}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-xs text-slate-400 break-words">
+                        {inspectedSensor.id} · {inspectedSensor.type} · Host Cell {inspectedSensor.cellId}
+                      </div>
+                      <h3 className="text-base font-semibold text-white mt-0.5 break-words">
+                        {inspectedSensor.name}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectTarget(null);
+                        setPanelTab('SITUATION');
+                      }}
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-mono cursor-pointer shrink-0"
+                      title="Close inspection details"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <h3 className="text-base font-semibold text-white mt-0.5 break-words">
-                    {inspectedSensor.name}
-                  </h3>
                   <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
                     <span className={`${SENSOR_FRESHNESS_META[inspectedSensor.freshnessState].textColor} break-words`}>
                       {SENSOR_FRESHNESS_META[inspectedSensor.freshnessState].glyph} Freshness:{' '}
@@ -1198,12 +1239,27 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             {inspectedShelter && (
               <div className="p-4 space-y-4 min-w-0">
                 <div className="border-b border-slate-800/80 pb-3">
-                  <div className="font-mono text-xs text-slate-400 break-words">
-                    {inspectedShelter.id} · {inspectedShelter.locationLabel}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-xs text-slate-400 break-words">
+                        {inspectedShelter.id} · {inspectedShelter.locationLabel}
+                      </div>
+                      <h3 className="text-base font-semibold text-white mt-0.5 break-words">
+                        {inspectedShelter.name}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectTarget(null);
+                        setPanelTab('SITUATION');
+                      }}
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-mono cursor-pointer shrink-0"
+                      title="Close inspection details"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <h3 className="text-base font-semibold text-white mt-0.5 break-words">
-                    {inspectedShelter.name}
-                  </h3>
                   <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 font-mono text-xs">
                     <span
                       className={`break-words ${
@@ -1297,12 +1353,27 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             {inspectedAsset && (
               <div className="p-4 space-y-4 min-w-0">
                 <div className="border-b border-slate-800/80 pb-3">
-                  <div className="font-mono text-xs text-slate-400 break-words">
-                    {inspectedAsset.id} · {inspectedAsset.category} · {inspectedAsset.criticalityLevel}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-xs text-slate-400 break-words">
+                        {inspectedAsset.id} · {inspectedAsset.category} · {inspectedAsset.criticalityLevel}
+                      </div>
+                      <h3 className="text-base font-semibold text-white mt-0.5 break-words">
+                        {inspectedAsset.name}
+                      </h3>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectTarget(null);
+                        setPanelTab('SITUATION');
+                      }}
+                      className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 text-xs font-mono cursor-pointer shrink-0"
+                      title="Close inspection details"
+                    >
+                      ✕
+                    </button>
                   </div>
-                  <h3 className="text-base font-semibold text-white mt-0.5 break-words">
-                    {inspectedAsset.name}
-                  </h3>
                   <div className="mt-1 font-mono text-xs text-slate-300 break-words">
                     Elevation: {inspectedAsset.elevationM}m MSL · Backup Power: {inspectedAsset.backupPowerHours}h
                   </div>

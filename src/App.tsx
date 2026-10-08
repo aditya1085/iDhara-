@@ -1236,6 +1236,13 @@ export default function App() {
     setCustomOriginId(nearestNode.id);
   };
 
+  const handleDeselectArea = () => {
+    setSelectedArea(null);
+    if (selectedTarget?.type === 'CELL') {
+      setSelectedTarget(null);
+    }
+  };
+
   const handleSelectTarget = (target: MapInspectionTarget | null) => {
     setSelectedTarget(target);
     if (target?.type === 'CELL') {
@@ -1939,66 +1946,92 @@ export default function App() {
                 onResetObservations={handleResetObservations}
               />
             </div>
+          ) : activeTab === 'overview' ? (
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col bg-[#05080E]">
+              {/* Contextual Command Center Overview Strip (Situation + Operational Chain + Activity Feed) */}
+              <div className="shrink-0 bg-[#080C14] border-b border-slate-800">
+                <ModuleWorkspace
+                  activeTab="overview"
+                  params={params}
+                  onUpdateParams={updateParamsWithHysteresis}
+                  cells={cells}
+                  roads={roads}
+                  sensors={sensors}
+                  shelters={shelters}
+                  evacuationPlans={evacuationPlans}
+                  evacuationModeActive={evacuationModeActive}
+                  evacuationTriggerReason={evacuationTriggerReason}
+                  evacuationThreshold={evacuationConfig.thresholdProbability}
+                  manualEvacuationActive={evacuationConfig.manualModeActive}
+                  shelterCapacityScalePct={evacuationConfig.shelterCapacityScalePct}
+                  lastEvacAutoRefreshNote={lastEvacAutoRefreshNote}
+                  onToggleManualEvacuation={handleToggleManualEvacuation}
+                  onChangeEvacuationThreshold={handleChangeEvacuationThreshold}
+                  onChangeShelterCapacityScale={handleChangeShelterCapacityScale}
+                  onRecalculateEvacuationPlan={handleRecalculateEvacuationPlan}
+                  onSimulateEvacFailureState={handleSimulateEvacFailureState}
+                  routes={routes}
+                  activeRouteId={activeRoute?.id ?? ''}
+                  onSelectRouteId={setSelectedRouteId}
+                  customOriginId={customOriginId}
+                  customDestId={customDestId}
+                  travelProfile={travelProfile}
+                  onChangeCustomRoute={handleChangeCustomRoute}
+                  onChangeTravelProfile={handleChangeTravelProfile}
+                  routeUpdateNotification={routeUpdateNotification}
+                  onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
+                  onTriggerDemoIncident={handleTriggerDemoIncident}
+                  onTriggerNoFeasibleRouteDemo={handleTriggerNoFeasibleRouteDemo}
+                  alerts={alerts}
+                  onAcknowledgeAlert={handleAcknowledgeAlert}
+                  onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
+                  onComposeAlert={handleComposeAlert}
+                  validationReport={validationReport}
+                  isPlayingTimeline={isPlayingTimeline}
+                  onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
+                  replaySpeed={replaySpeed}
+                  onChangeReplaySpeed={setReplaySpeed}
+                  onStepTimeline={handleStepTimeline}
+                  activeModelVersionId={activeModelVersionId}
+                  onChangeModelVersionId={handleChangeModelVersionId}
+                  dataHealthReport={dataHealthReport}
+                  activeRole={activeRole}
+                  onSelectMapTarget={handleSelectTarget}
+                  onNavigateTab={handleNavigateTab}
+                  activityFeed={activityFeed}
+                  onInjectObservation={handleInjectObservation}
+                  onResetObservations={handleResetObservations}
+                />
+              </div>
+
+              {/* Central Primary Map Viewport in Overview (Reachable by scrolling, stable dimensions) */}
+              <div className="h-[650px] min-h-[500px] shrink-0 relative flex flex-col">
+                <IndoreFloodMap
+                  mode={params.mode}
+                  cells={cells}
+                  roads={roads}
+                  sensors={sensors}
+                  shelters={shelters}
+                  selectedArea={selectedArea}
+                  selectedTarget={selectedTarget}
+                  onSelectTarget={handleSelectTarget}
+                  onSelectArea={handleSelectArea}
+                  onDeselectArea={handleDeselectArea}
+                  activeRoute={activeRoute}
+                  evacuationRoute={activeEvacuationRoute}
+                  routeStatus={routeStatus}
+                  evacuationStatus={evacuationStatus}
+                  onRequestRoute={handleRequestRoute}
+                  onRequestEvacuation={handleRequestEvacuation}
+                  onClearRoute={handleClearRoute}
+                  onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
+                  routeUpdateNotification={routeUpdateNotification}
+                  activeTab={activeTab}
+                />
+              </div>
+            </div>
           ) : (
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
-              {/* Contextual Command Center Overview Strip (Situation + Operational Chain + Activity Feed) */}
-              {activeTab === 'overview' && (
-                <div className="shrink-0 max-h-[44vh] overflow-y-auto border-b border-slate-800 bg-[#080C14]">
-                  <ModuleWorkspace
-                    activeTab="overview"
-                    params={params}
-                    onUpdateParams={updateParamsWithHysteresis}
-                    cells={cells}
-                    roads={roads}
-                    sensors={sensors}
-                    shelters={shelters}
-                    evacuationPlans={evacuationPlans}
-                    evacuationModeActive={evacuationModeActive}
-                    evacuationTriggerReason={evacuationTriggerReason}
-                    evacuationThreshold={evacuationConfig.thresholdProbability}
-                    manualEvacuationActive={evacuationConfig.manualModeActive}
-                    shelterCapacityScalePct={evacuationConfig.shelterCapacityScalePct}
-                    lastEvacAutoRefreshNote={lastEvacAutoRefreshNote}
-                    onToggleManualEvacuation={handleToggleManualEvacuation}
-                    onChangeEvacuationThreshold={handleChangeEvacuationThreshold}
-                    onChangeShelterCapacityScale={handleChangeShelterCapacityScale}
-                    onRecalculateEvacuationPlan={handleRecalculateEvacuationPlan}
-                    onSimulateEvacFailureState={handleSimulateEvacFailureState}
-                    routes={routes}
-                    activeRouteId={activeRoute?.id ?? ''}
-                    onSelectRouteId={setSelectedRouteId}
-                    customOriginId={customOriginId}
-                    customDestId={customDestId}
-                    travelProfile={travelProfile}
-                    onChangeCustomRoute={handleChangeCustomRoute}
-                    onChangeTravelProfile={handleChangeTravelProfile}
-                    routeUpdateNotification={routeUpdateNotification}
-                    onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
-                    onTriggerDemoIncident={handleTriggerDemoIncident}
-                    onTriggerNoFeasibleRouteDemo={handleTriggerNoFeasibleRouteDemo}
-                    alerts={alerts}
-                    onAcknowledgeAlert={handleAcknowledgeAlert}
-                    onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
-                    onComposeAlert={handleComposeAlert}
-                    validationReport={validationReport}
-                    isPlayingTimeline={isPlayingTimeline}
-                    onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
-                    replaySpeed={replaySpeed}
-                    onChangeReplaySpeed={setReplaySpeed}
-                    onStepTimeline={handleStepTimeline}
-                    activeModelVersionId={activeModelVersionId}
-                    onChangeModelVersionId={handleChangeModelVersionId}
-                    dataHealthReport={dataHealthReport}
-                    activeRole={activeRole}
-                    onSelectMapTarget={handleSelectTarget}
-                    onNavigateTab={handleNavigateTab}
-                    activityFeed={activityFeed}
-                    onInjectObservation={handleInjectObservation}
-                    onResetObservations={handleResetObservations}
-                  />
-                </div>
-              )}
-
               {/* Contextual Top Action Ribbon for Roads & Routing */}
               {activeTab === 'roads-routing' && (
                 <div className="h-9 px-3 bg-[#080C14] border-b border-slate-800 flex items-center justify-between gap-2 text-[11px] font-mono shrink-0 overflow-x-auto no-scrollbar">
@@ -2123,6 +2156,7 @@ export default function App() {
                   selectedTarget={selectedTarget}
                   onSelectTarget={handleSelectTarget}
                   onSelectArea={handleSelectArea}
+                  onDeselectArea={handleDeselectArea}
                   activeRoute={activeRoute}
                   evacuationRoute={activeEvacuationRoute}
                   routeStatus={routeStatus}
@@ -2130,6 +2164,7 @@ export default function App() {
                   onRequestRoute={handleRequestRoute}
                   onRequestEvacuation={handleRequestEvacuation}
                   onClearRoute={handleClearRoute}
+                  onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
                   routeUpdateNotification={routeUpdateNotification}
                   activeTab={activeTab}
                 />
