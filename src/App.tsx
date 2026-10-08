@@ -5,7 +5,7 @@ import { DisasterTwinWorkspace } from './components/DisasterTwinWorkspace';
 import { IndoreFloodMap, MapInspectionTarget } from './components/IndoreFloodMap';
 import { ModuleWorkspace } from './components/ModuleWorkspaces';
 import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/SeverityVisuals';
-import { PILOT_SCOPE_ID } from './data/indorePilotData';
+import { INTERSECTION_NODES, PILOT_SCOPE_ID } from './data/indorePilotData';
 import {
   AlertLifecycleOverride,
   createComposedAlert,
@@ -15,6 +15,7 @@ import {
   wrapInEnvelope,
 } from './modules/dataIngestion';
 import {
+  computeEvacuationRouteToShelter,
   DEFAULT_EVACUATION_CONFIG,
   EvacuationConfig,
 } from './modules/evacuation';
@@ -25,6 +26,8 @@ import {
   verifyStateConsistency,
 } from './modules/prototypeDataStore';
 import {
+  computeSingleRoute,
+  findNearestNodeForCell,
   selectDemoIncidentRoad,
   TRAVEL_PROFILE_POLICIES,
 } from './modules/routing';
@@ -35,6 +38,8 @@ import {
   AlertLifecycleState,
   DISASTER_STAGE_INFO,
   DisasterStage,
+  EvacuationPlanItem,
+  FloodRiskCell,
   FloodSeverity,
   InjectedObservationState,
   NavigationTab,
@@ -42,6 +47,7 @@ import {
   ProductMode,
   ReplaySpeed,
   RoadStatus,
+  RouteRecommendation,
   RouteUpdateNotification,
   ScenarioParameters,
   TravelProfile,
@@ -175,17 +181,18 @@ export default function App() {
     setStableTicksElapsed((prev) => Math.min(3, prev + 1));
   };
 
-  const [selectedTarget, setSelectedTarget] = useState<MapInspectionTarget>({
-    type: 'CELL',
-    id: 'CELL-R2C2', // Krishnapura Confluence hotspot
-  });
+  // Shared map-related state (unified across Risk Map, Roads & Routing, Evacuation, and Area Selection)
+  const [selectedArea, setSelectedArea] = useState<FloodRiskCell | null>(null);
+  const [selectedTarget, setSelectedTarget] = useState<MapInspectionTarget | null>(null);
+  const [activeMapRoute, setActiveMapRoute] = useState<RouteRecommendation | null>(null);
+  const [activeEvacuationRoute, setActiveEvacuationRoute] = useState<EvacuationPlanItem | null>(null);
+  const [routeStatus, setRouteStatus] = useState<'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_ROUTE'>('IDLE');
+  const [evacuationStatus, setEvacuationStatus] = useState<'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_EVACUATION'>('IDLE');
 
   const [customOriginId, setCustomOriginId] = useState<string>('NODE-RAJWADA');
   const [customDestId, setCustomDestId] = useState<string>('NODE-MY-HOSPITAL');
   const [travelProfile, setTravelProfile] = useState<TravelProfile>('AMBULANCE');
-  const [selectedRouteId, setSelectedRouteId] = useState<string>(
-    'RTE-PLANNER-NODE-RAJWADA-NODE-MY-HOSPITAL'
-  );
+  const [selectedRouteId, setSelectedRouteId] = useState<string>('');
   const [routeUpdateNotification, setRouteUpdateNotification] =
     useState<RouteUpdateNotification | null>(null);
   const [evacuationConfig, setEvacuationConfig] = useState<EvacuationConfig>(
@@ -617,10 +624,21 @@ export default function App() {
     );
   };
 
-  const activeRoute = useMemo(
-    () => routes.find((r) => r.id === selectedRouteId) ?? routes[0] ?? null,
-    [routes, selectedRouteId]
-  );
+  const activeRoute = activeMapRoute;
+
+  // Re-evaluate activeMapRoute when roads or scenario parameters update
+  useEffect(() => {
+    if (!activeMapRoute) return;
+    const recomputed = computeSingleRoute(
+      activeMapRoute.originNodeId,
+      activeMapRoute.destinationNodeId,
+      roads,
+      params,
+      activeMapRoute.travelProfile
+    );
+    setActiveMapRoute(recomputed);
+    setRouteStatus(recomputed.feasible ? 'FEASIBLE' : 'NO_FEASIBLE_ROUTE');
+  }, [roads, params]);
 
   // ============================================================================
   // LIVE REROUTING SUBSCRIPTION:
@@ -800,6 +818,28 @@ export default function App() {
         ...overrides,
       },
     }));
+
+    const originNode = selectedArea
+      ? findNearestNodeForCell(selectedArea)
+      : INTERSECTION_NODES.find((n) => n.id === originId);
+    if (originNode) {
+      const closedRoads = roads.map((r) =>
+        incidentRoads.some((ir) => ir.id === r.id)
+          ? { ...r, currentState: RoadStatus.CLOSED }
+          : r
+      );
+      const infeasibleRoute = computeSingleRoute(
+        originNode.id,
+        customDestId,
+        closedRoads,
+        params,
+        travelProfile
+      );
+      setActiveMapRoute(infeasibleRoute);
+      setRouteStatus('NO_FEASIBLE_ROUTE');
+      setActiveEvacuationRoute(null);
+      setEvacuationStatus('IDLE');
+    }
 
     setActivityFeed((prev) =>
       [
@@ -1182,18 +1222,229 @@ export default function App() {
     });
   };
 
+  const handleSelectArea = (cell: FloodRiskCell) => {
+    setSelectedArea(cell);
+    setSelectedTarget({ type: 'CELL', id: cell.id });
+    // Clear stale route / evacuation state
+    setActiveMapRoute(null);
+    setActiveEvacuationRoute(null);
+    setRouteStatus('IDLE');
+    setEvacuationStatus('IDLE');
+    setRouteUpdateNotification(null);
+    // Sync origin node in routing ribbon with the selected area
+    const nearestNode = findNearestNodeForCell(cell);
+    setCustomOriginId(nearestNode.id);
+  };
+
+  const handleSelectTarget = (target: MapInspectionTarget | null) => {
+    setSelectedTarget(target);
+    if (target?.type === 'CELL') {
+      const found = cells.find((c) => c.id === target.id);
+      if (found) {
+        handleSelectArea(found);
+      }
+    }
+  };
+
+  const handleRequestRoute = () => {
+    if (!selectedArea) return;
+    const originNode = findNearestNodeForCell(selectedArea);
+    const destId = customDestId || 'NODE-MY-HOSPITAL';
+    const computed = computeSingleRoute(
+      originNode.id,
+      destId,
+      roads,
+      params,
+      travelProfile
+    );
+    setActiveMapRoute(computed);
+    setRouteStatus(computed.feasible ? 'FEASIBLE' : 'NO_FEASIBLE_ROUTE');
+    setActiveEvacuationRoute(null);
+    setEvacuationStatus('IDLE');
+  };
+
+  const handleRequestEvacuation = () => {
+    if (!selectedArea) return;
+    const originNode = findNearestNodeForCell(selectedArea);
+
+    const existingPlan = evacuationPlans.find(
+      (p) => p.sourceCellId === selectedArea.id && p.assigned && p.routeRoadIds.length > 0
+    );
+
+    if (existingPlan) {
+      setActiveEvacuationRoute(existingPlan);
+      setEvacuationStatus('FEASIBLE');
+    } else {
+      const reachableShelters = shelters.filter(
+        (s) => s.reachable && s.remainingCapacity > 0
+      );
+      let bestPlan: EvacuationPlanItem | null = null;
+      for (const shelter of reachableShelters) {
+        const evacResult = computeEvacuationRouteToShelter(
+          originNode.id,
+          shelter.nearestNodeId,
+          roads
+        );
+        if (evacResult && evacResult.roadIds.length > 0) {
+          const populationAtRisk = Math.max(95, Math.round(selectedArea.populationEstimate * 0.03));
+          const prov = {
+            mode: params.mode,
+            scope_id: PILOT_SCOPE_ID,
+            generated_at: new Date().toISOString(),
+            data_as_of: new Date().toISOString(),
+            confidence: Number(((selectedArea.confidence + evacResult.confidence) / 2).toFixed(2)),
+          };
+          bestPlan = {
+            ...prov,
+            id: `EVAC-${selectedArea.id}`,
+            sourceCellId: selectedArea.id,
+            sourceLocality: `${selectedArea.localityName} (${selectedArea.wardCode})`,
+            wardCode: selectedArea.wardCode,
+            floodProbability: selectedArea.floodProbability,
+            predictedDepthCm: selectedArea.predictedDepthCm,
+            populationAtRisk,
+            priorityScore: 80,
+            priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
+            priorityReason: `Evacuation corridor to ${shelter.name}`,
+            criticalFacilities: [],
+            nearestShelters: [],
+            roadAccessibilityStatus: 'ACCESSIBLE',
+            roadAccessibilityLabel: `Corridor open to ${shelter.name}`,
+            originNodeId: originNode.id,
+            originNodeName: originNode.name,
+            severity: selectedArea.severity,
+            assigned: true,
+            assignmentSummary: `${selectedArea.localityName} → ${shelter.name}`,
+            targetShelterId: shelter.id,
+            targetShelterName: shelter.name,
+            recommendedRouteId: evacResult.roadIds.join(' → '),
+            routeRoadIds: evacResult.roadIds,
+            routeRoadNames: evacResult.roadNames,
+            routeNodeIds: evacResult.nodeIds,
+            routeLabel: 'Recommended evacuation route under current data',
+            routeRiskScore: evacResult.riskScore,
+            distanceKm: evacResult.distanceKm,
+            estimatedClearanceMin: Math.round(evacResult.travelTimeMin + 12),
+            busesAssigned: 4,
+            status: 'EVACUATING',
+            expiry: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+          };
+          break;
+        }
+      }
+
+      if (bestPlan) {
+        setActiveEvacuationRoute(bestPlan);
+        setEvacuationStatus('FEASIBLE');
+      } else {
+        const prov = {
+          mode: params.mode,
+          scope_id: PILOT_SCOPE_ID,
+          generated_at: new Date().toISOString(),
+          data_as_of: new Date().toISOString(),
+          confidence: selectedArea.confidence,
+        };
+        const failedPlan: EvacuationPlanItem = {
+          ...prov,
+          id: `EVAC-${selectedArea.id}`,
+          sourceCellId: selectedArea.id,
+          sourceLocality: `${selectedArea.localityName} (${selectedArea.wardCode})`,
+          wardCode: selectedArea.wardCode,
+          floodProbability: selectedArea.floodProbability,
+          predictedDepthCm: selectedArea.predictedDepthCm,
+          populationAtRisk: Math.max(95, Math.round(selectedArea.populationEstimate * 0.03)),
+          priorityScore: 90,
+          priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
+          priorityReason: 'All shelter routes impassable',
+          criticalFacilities: [],
+          nearestShelters: [],
+          roadAccessibilityStatus: 'DISCONNECTED',
+          roadAccessibilityLabel: 'All outgoing roads flooded or closed',
+          originNodeId: originNode.id,
+          originNodeName: originNode.name,
+          severity: selectedArea.severity,
+          assigned: false,
+          assignmentSummary: `${selectedArea.localityName} — UNASSIGNED`,
+          targetShelterId: '',
+          targetShelterName: 'None Reachable',
+          recommendedRouteId: '',
+          routeRoadIds: [],
+          routeRoadNames: [],
+          routeNodeIds: [],
+          routeLabel: 'Recommended evacuation route under current data',
+          routeRiskScore: 100,
+          distanceKm: 0,
+          estimatedClearanceMin: 0,
+          busesAssigned: 0,
+          status: 'UNASSIGNED_FAILURE',
+          failureBanner: 'NO FEASIBLE EVACUATION PLAN',
+          failureReason: 'Road network disconnected',
+          failureDetail: 'All outgoing corridors from area are closed or submerged above safety thresholds.',
+          expiry: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        };
+        setActiveEvacuationRoute(failedPlan);
+        setEvacuationStatus('NO_FEASIBLE_EVACUATION');
+      }
+    }
+    setActiveMapRoute(null);
+    setRouteStatus('IDLE');
+  };
+
+  const handleClearRoute = () => {
+    setActiveMapRoute(null);
+    setActiveEvacuationRoute(null);
+    setRouteStatus('IDLE');
+    setEvacuationStatus('IDLE');
+  };
+
   const handleChangeCustomRoute = (originId: string, destId: string) => {
     setCustomOriginId(originId);
     setCustomDestId(destId);
     setRouteUpdateNotification(null);
     if (originId !== destId) {
       setSelectedRouteId(`RTE-PLANNER-${originId}-${destId}`);
+      const originNode = INTERSECTION_NODES.find((n) => n.id === originId);
+      if (originNode) {
+        let bestCell = cells[0];
+        let bestD = Number.POSITIVE_INFINITY;
+        cells.forEach((c) => {
+          const d = Math.hypot(c.lat - originNode.lat, c.lng - originNode.lng);
+          if (d < bestD) {
+            bestD = d;
+            bestCell = c;
+          }
+        });
+        setSelectedArea(bestCell);
+        setSelectedTarget({ type: 'CELL', id: bestCell.id });
+      }
+      const calculated = computeSingleRoute(
+        originId,
+        destId,
+        roads,
+        params,
+        travelProfile
+      );
+      setActiveMapRoute(calculated);
+      setRouteStatus(calculated.feasible ? 'FEASIBLE' : 'NO_FEASIBLE_ROUTE');
+      setActiveEvacuationRoute(null);
+      setEvacuationStatus('IDLE');
     }
   };
 
   const handleChangeTravelProfile = (profile: TravelProfile) => {
     setTravelProfile(profile);
     setRouteUpdateNotification(null);
+    if (activeMapRoute) {
+      const calculated = computeSingleRoute(
+        activeMapRoute.originNodeId,
+        activeMapRoute.destinationNodeId,
+        roads,
+        params,
+        profile
+      );
+      setActiveMapRoute(calculated);
+      setRouteStatus(calculated.feasible ? 'FEASIBLE' : 'NO_FEASIBLE_ROUTE');
+    }
   };
 
   const handleNavigateTab = (tab: NavigationTab) => {
@@ -1620,8 +1871,8 @@ export default function App() {
               baselineRoutes={routes}
               baselineEvacuationPlans={evacuationPlans}
               injectedObservations={injectedObservations}
-              selectedTarget={selectedTarget}
-              onSelectTarget={setSelectedTarget}
+              selectedTarget={selectedTarget ?? { type: 'CELL', id: 'CELL-R2C2' }}
+              onSelectTarget={handleSelectTarget}
               onSelectStage={handleSelectStage}
               isPlayingTimeline={isPlayingTimeline}
               onTogglePlayTimeline={handleTogglePlayTimeline}
@@ -1681,7 +1932,7 @@ export default function App() {
                 onChangeModelVersionId={handleChangeModelVersionId}
                 dataHealthReport={dataHealthReport}
                 activeRole={activeRole}
-                onSelectMapTarget={setSelectedTarget}
+                onSelectMapTarget={handleSelectTarget}
                 onNavigateTab={handleNavigateTab}
                 activityFeed={activityFeed}
                 onInjectObservation={handleInjectObservation}
@@ -1739,7 +1990,7 @@ export default function App() {
                     onChangeModelVersionId={handleChangeModelVersionId}
                     dataHealthReport={dataHealthReport}
                     activeRole={activeRole}
-                    onSelectMapTarget={setSelectedTarget}
+                    onSelectMapTarget={handleSelectTarget}
                     onNavigateTab={handleNavigateTab}
                     activityFeed={activityFeed}
                     onInjectObservation={handleInjectObservation}
@@ -1868,10 +2119,18 @@ export default function App() {
                   roads={roads}
                   sensors={sensors}
                   shelters={shelters}
-                  activeRoute={activeRoute}
-                  routeUpdateNotification={routeUpdateNotification}
+                  selectedArea={selectedArea}
                   selectedTarget={selectedTarget}
-                  onSelectTarget={setSelectedTarget}
+                  onSelectTarget={handleSelectTarget}
+                  onSelectArea={handleSelectArea}
+                  activeRoute={activeRoute}
+                  evacuationRoute={activeEvacuationRoute}
+                  routeStatus={routeStatus}
+                  evacuationStatus={evacuationStatus}
+                  onRequestRoute={handleRequestRoute}
+                  onRequestEvacuation={handleRequestEvacuation}
+                  onClearRoute={handleClearRoute}
+                  routeUpdateNotification={routeUpdateNotification}
                   activeTab={activeTab}
                 />
 
@@ -1987,7 +2246,7 @@ export default function App() {
         {isInspectorOpen && (
           <ContextInspectorPanel
             selectedTarget={selectedTarget}
-            onSelectTarget={setSelectedTarget}
+            onSelectTarget={handleSelectTarget}
             cells={cells}
             roads={roads}
             sensors={sensors}

@@ -33,7 +33,7 @@ import {
 } from './SeverityVisuals';
 
 interface ContextInspectorPanelProps {
-  selectedTarget: MapInspectionTarget;
+  selectedTarget: MapInspectionTarget | null;
   onSelectTarget: (target: MapInspectionTarget) => void;
   cells: FloodRiskCell[];
   roads: RoadSegmentState[];
@@ -87,8 +87,10 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
       isFirstRenderRef.current = false;
       return;
     }
-    setPanelTab('INSPECTOR');
-  }, [selectedTarget.type, selectedTarget.id]);
+    if (selectedTarget) {
+      setPanelTab('INSPECTOR');
+    }
+  }, [selectedTarget?.type, selectedTarget?.id]);
 
   const toggleWhyWarning = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -209,28 +211,28 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
   }, [cells, atRiskRoads, params.mode, params.timelineHourOffset]);
 
   const inspectedCell =
-    selectedTarget.type === 'CELL'
-      ? cells.find((c) => c.id === selectedTarget.id) ?? cells[18]
+    selectedTarget?.type === 'CELL'
+      ? cells.find((c) => c.id === selectedTarget.id) ?? null
       : null;
 
   const inspectedRoad =
-    selectedTarget.type === 'ROAD'
-      ? roads.find((r) => r.id === selectedTarget.id) ?? roads[4]
+    selectedTarget?.type === 'ROAD'
+      ? roads.find((r) => r.id === selectedTarget.id) ?? null
       : null;
 
   const inspectedSensor =
-    selectedTarget.type === 'SENSOR'
-      ? sensors.find((s) => s.id === selectedTarget.id) ?? sensors[0]
+    selectedTarget?.type === 'SENSOR'
+      ? sensors.find((s) => s.id === selectedTarget.id) ?? null
       : null;
 
   const inspectedShelter =
-    selectedTarget.type === 'SHELTER'
-      ? shelters.find((sh) => sh.id === selectedTarget.id) ?? shelters[0]
+    selectedTarget?.type === 'SHELTER'
+      ? shelters.find((sh) => sh.id === selectedTarget.id) ?? null
       : null;
 
   const inspectedAsset =
-    selectedTarget.type === 'ASSET'
-      ? CRITICAL_ASSETS.find((a) => a.id === selectedTarget.id) ?? CRITICAL_ASSETS[0]
+    selectedTarget?.type === 'ASSET'
+      ? CRITICAL_ASSETS.find((a) => a.id === selectedTarget.id) ?? null
       : null;
 
   const handleSelectAndInspect = (target: MapInspectionTarget) => {
@@ -271,9 +273,9 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
-            title={`Inspector (${selectedTarget.id.replace('CELL-', '')})`}
+            title={`Inspector (${selectedTarget ? selectedTarget.id.replace('CELL-', '') : 'None'})`}
           >
-            Inspector ({selectedTarget.id.replace('CELL-', '')})
+            Inspector ({selectedTarget ? selectedTarget.id.replace('CELL-', '') : '—'})
           </button>
           <button
             type="button"
@@ -659,7 +661,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               type="button"
               onClick={() => onSelectTarget({ type: 'CELL', id: 'CELL-R2C2' })}
               className={`px-2 py-1 border transition-colors cursor-pointer text-center break-words ${
-                selectedTarget.type === 'CELL'
+                selectedTarget?.type === 'CELL'
                   ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
                   : 'border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
@@ -670,7 +672,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               type="button"
               onClick={() => onSelectTarget({ type: 'ROAD', id: 'RD-05' })}
               className={`px-2 py-1 border transition-colors cursor-pointer text-center break-words ${
-                selectedTarget.type === 'ROAD'
+                selectedTarget?.type === 'ROAD'
                   ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
                   : 'border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
@@ -681,7 +683,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               type="button"
               onClick={() => onSelectTarget({ type: 'SENSOR', id: 'SEN-WL-01' })}
               className={`px-2 py-1 border transition-colors cursor-pointer text-center break-words ${
-                selectedTarget.type === 'SENSOR'
+                selectedTarget?.type === 'SENSOR'
                   ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
                   : 'border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
@@ -692,7 +694,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               type="button"
               onClick={() => onSelectTarget({ type: 'SHELTER', id: 'SH-01' })}
               className={`px-2 py-1 border transition-colors cursor-pointer text-center break-words ${
-                selectedTarget.type === 'SHELTER'
+                selectedTarget?.type === 'SHELTER'
                   ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
                   : 'border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
@@ -700,6 +702,16 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
               Shelter: SH-01
             </button>
           </div>
+
+          {/* Empty State when no entity is inspected */}
+          {!inspectedCell && !inspectedRoad && !inspectedSensor && !inspectedShelter && !inspectedAsset && (
+            <div className="p-8 text-center font-mono text-xs text-slate-400 space-y-2">
+              <div className="text-cyan-400 font-bold">NO ENTITY SELECTED</div>
+              <p className="text-slate-500 text-[11px] leading-relaxed">
+                Click any study area cell, road corridor, gauge sensor, shelter, or critical asset on the map to inspect live telemetry and model diagnostics.
+              </p>
+            </div>
+          )}
 
           {/* 1. FLOOD-RISK CELL PREDICTION DISPLAY */}
           {inspectedCell && (

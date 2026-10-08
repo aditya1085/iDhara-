@@ -7,6 +7,7 @@ import {
   PILOT_SCOPE_ID,
 } from '../data/indorePilotData';
 import {
+  EvacuationPlanItem,
   FloodRiskCell,
   FloodSeverity,
   MapSurfaceMetric,
@@ -19,6 +20,7 @@ import {
   SensorNode,
   Shelter,
 } from '../types/idhara';
+import { findNearestNodeForCell } from '../modules/routing';
 import { MODE_META, ROAD_STATUS_META, SEVERITY_META } from './SeverityVisuals';
 
 export type MapInspectionTarget =
@@ -34,10 +36,18 @@ interface IndoreFloodMapProps {
   roads: RoadSegmentState[];
   sensors: SensorNode[];
   shelters: Shelter[];
-  activeRoute: RouteRecommendation | null;
-  routeUpdateNotification?: RouteUpdateNotification | null;
-  selectedTarget: MapInspectionTarget;
+  selectedArea: FloodRiskCell | null;
+  selectedTarget: MapInspectionTarget | null;
   onSelectTarget: (target: MapInspectionTarget) => void;
+  onSelectArea: (area: FloodRiskCell) => void;
+  activeRoute: RouteRecommendation | null;
+  evacuationRoute: EvacuationPlanItem | null;
+  routeStatus?: 'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_ROUTE';
+  evacuationStatus?: 'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_EVACUATION';
+  onRequestRoute?: () => void;
+  onRequestEvacuation?: () => void;
+  onClearRoute?: () => void;
+  routeUpdateNotification?: RouteUpdateNotification | null;
   activeTab?: NavigationTab;
 }
 
@@ -56,10 +66,18 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   roads,
   sensors,
   shelters,
-  activeRoute,
-  routeUpdateNotification,
+  selectedArea,
   selectedTarget,
   onSelectTarget,
+  onSelectArea,
+  activeRoute,
+  evacuationRoute,
+  routeStatus = 'IDLE',
+  evacuationStatus = 'IDLE',
+  onRequestRoute,
+  onRequestEvacuation,
+  onClearRoute,
+  routeUpdateNotification,
   activeTab,
 }) => {
   const [layers, setLayers] = useState({
@@ -71,6 +89,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     drainage: true,
     roads: true,
     activeRoute: true,
+    evacuationRoute: true,
     rainGauges: true,
     waterLevelSensors: true,
     assetsAndShelters: true,
@@ -103,25 +122,35 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const nodeMap = new Map(INTERSECTION_NODES.map((n) => [n.id, n]));
+  const modeMeta = MODE_META[mode];
+  const cellSize = 1000 / 8; // 125 units per cell in 1000x1000 SVG space
+
   // Reset dismiss state whenever active route changes
   useEffect(() => {
     setIsRouteErrorDismissed(false);
   }, [activeRoute?.id, activeRoute?.feasible]);
 
-  const nodeMap = new Map(INTERSECTION_NODES.map((n) => [n.id, n]));
-  const modeMeta = MODE_META[mode];
+  // Center and focus map when selectedArea changes
+  useEffect(() => {
+    if (selectedArea) {
+      const cellCenterX = (selectedArea.col + 0.5) * cellSize;
+      const cellCenterY = (selectedArea.row + 0.5) * cellSize;
+      const offsetX = Math.max(-320, Math.min(320, 500 - cellCenterX));
+      const offsetY = Math.max(-320, Math.min(320, 500 - cellCenterY));
+      setPanOffset({ x: Math.round(offsetX), y: Math.round(offsetY) });
+      setZoom((z) => (z < 1.3 ? 1.35 : z));
+    }
+  }, [selectedArea?.id, cellSize]);
+
+  const selectedAreaOriginNodeId = useMemo(() => {
+    if (!selectedArea) return null;
+    return findNearestNodeForCell(selectedArea).id;
+  }, [selectedArea]);
 
   const toggleLayer = (key: keyof typeof layers) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   };
-
-  const cellSize = 1000 / 8; // 125 units per cell in 1000x1000 SVG space
-
-  // Route error is only relevant if user is actively engaged in routing
-  const isRouteRelevant =
-    activeTab === 'roads-routing' ||
-    selectedTarget.type === 'ROAD' ||
-    Boolean(routeUpdateNotification);
 
   // Zoom controls (+, −) must not appear by default at 100% zoom; only when zoomed or hovering
   const showZoomButtons = zoom !== 1 || isZoomControlsVisible;
@@ -135,6 +164,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
       label: string;
       subLabel: string;
       target: MapInspectionTarget;
+      cell?: FloodRiskCell;
       x: number;
       y: number;
       category: 'AREA' | 'ROAD' | 'SENSOR' | 'SHELTER' | 'ASSET';
@@ -152,6 +182,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           label: `${c.localityName} (${c.wardCode})`,
           subLabel: `Study Area · ${Math.round(c.floodProbability * 100)}% flood prob · ${c.severity} · ${c.elevationM}m MSL`,
           target: { type: 'CELL', id: c.id },
+          cell: c,
           x: (c.col + 0.5) * cellSize,
           y: (c.row + 0.5) * cellSize,
           category: 'AREA',
@@ -163,6 +194,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
       label: string;
       subLabel: string;
       target: MapInspectionTarget;
+      cell?: FloodRiskCell;
       x: number;
       y: number;
       category: 'AREA' | 'ROAD' | 'SENSOR' | 'SHELTER' | 'ASSET';
@@ -234,8 +266,20 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     setIsSearchOpen(false);
   };
 
-  const handleFocusTarget = (target: MapInspectionTarget, x: number, y: number, name?: string) => {
+  const handleFocusTarget = (
+    target: MapInspectionTarget,
+    x: number,
+    y: number,
+    name?: string,
+    cell?: FloodRiskCell
+  ) => {
     onSelectTarget(target);
+    if (cell) {
+      onSelectArea(cell);
+    } else if (target.type === 'CELL') {
+      const found = cells.find((c) => c.id === target.id);
+      if (found) onSelectArea(found);
+    }
     setZoom(1.4);
     const offsetX = Math.max(-320, Math.min(320, 500 - x));
     const offsetY = Math.max(-320, Math.min(320, 500 - y));
@@ -308,13 +352,14 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   <div className="divide-y divide-slate-800/80">
                     {searchResults.map((item, idx) => {
                       const isCurrentlySelected =
+                        selectedTarget !== null &&
                         selectedTarget.type === item.target.type &&
                         selectedTarget.id === item.target.id;
                       return (
                         <button
                           key={`${item.target.type}-${item.target.id}-${idx}`}
                           type="button"
-                          onClick={() => handleFocusTarget(item.target, item.x, item.y, item.label)}
+                          onClick={() => handleFocusTarget(item.target, item.x, item.y, item.label, item.cell)}
                           className={`w-full text-left px-3 py-2 transition-colors block cursor-pointer ${
                             isCurrentlySelected
                               ? 'bg-cyan-950/60 border-l-2 border-cyan-400'
@@ -385,7 +430,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 : 'bg-[#0D1422] border-slate-700 text-slate-200 hover:bg-slate-800'
             }`}
           >
-            ≡ Layers ({Object.values(layers).filter(Boolean).length}/12)
+            ≡ Layers ({Object.values(layers).filter(Boolean).length}/13)
           </button>
 
           {showLayerMenu && (
@@ -408,7 +453,8 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 { key: 'patterns', label: 'Non-Hue Hatch Patterns' },
                 { key: 'drainage', label: 'Kahn & Saraswati Rivers' },
                 { key: 'roads', label: 'Road Network & Barricades' },
-                { key: 'activeRoute', label: 'Recommended Reroute Path' },
+                { key: 'activeRoute', label: 'Emergency Route Corridor' },
+                { key: 'evacuationRoute', label: 'Evacuation Route Corridor' },
                 { key: 'rainGauges', label: 'Rain Gauges (4 AWS)' },
                 { key: 'waterLevelSensors', label: 'Water-Level Sensors (6)' },
                 { key: 'assetsAndShelters', label: 'Hospitals & Relief Shelters' },
@@ -474,11 +520,56 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
       {/* Main Interactive SVG Geospatial Viewport */}
       <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070D] geospatial-grid-bg">
-        {/* Subtle Pilot Bounds Indicator (Unobtrusive so map cells remain 100% visible) */}
-        <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none px-2.5 py-1 bg-[#060A14]/90 border border-slate-800 text-[10.5px] font-mono text-cyan-300 shadow-sm flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-          <span>Indore Pilot (5×5 km)</span>
-        </div>
+        {/* Top-Left: Selected Area Operational Directive & Action Card, or Pilot Bounds Indicator */}
+        {selectedArea ? (
+          <div className="absolute top-2.5 left-2.5 z-20 flex flex-wrap items-center gap-2.5 bg-[#090F1C]/95 border border-cyan-500/80 px-3 py-2 font-mono text-[11px] shadow-2xl backdrop-blur-xs max-w-xl">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
+              <div className="flex flex-col">
+                <span className="text-white font-bold text-xs">
+                  {selectedArea.localityName}{' '}
+                  <span className="text-cyan-300 font-normal">({selectedArea.wardCode})</span>
+                </span>
+                <span className="text-[10px] text-slate-300">
+                  Flood Risk: <strong className={selectedArea.floodProbability >= 0.52 ? 'text-amber-300' : 'text-emerald-300'}>{Math.round(selectedArea.floodProbability * 100)}%</strong> · Elev: {selectedArea.elevationM}m · Node: <span className="text-cyan-200">{nodeMap.get(selectedAreaOriginNodeId ?? '')?.name ?? selectedAreaOriginNodeId}</span>
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                type="button"
+                onClick={onRequestRoute}
+                className="px-2.5 py-1 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-[10.5px] transition-colors cursor-pointer whitespace-nowrap"
+                title="Run flood-aware routing for this selected area"
+              >
+                ⚡ Calculate Route
+              </button>
+              <button
+                type="button"
+                onClick={onRequestEvacuation}
+                className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] transition-colors cursor-pointer whitespace-nowrap"
+                title="Calculate evacuation corridor to nearest reachable shelter"
+              >
+                ▲ Evacuate Area
+              </button>
+              {(activeRoute || evacuationRoute) && (
+                <button
+                  type="button"
+                  onClick={onClearRoute}
+                  className="px-1.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-[10px] transition-colors cursor-pointer"
+                  title="Clear active route/evacuation overlays"
+                >
+                  ✕ Clear
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none px-2.5 py-1 bg-[#060A14]/90 border border-slate-800 text-[10.5px] font-mono text-cyan-300 shadow-sm flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>Indore Pilot (5×5 km) · Click area or search above</span>
+          </div>
+        )}
 
         {/* Top-Right Live Route Subscription / Rerouting Status Banner */}
         {routeUpdateNotification && (
@@ -496,9 +587,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           </div>
         )}
 
-        {/* Operational No Feasible Route State (Standardized & Non-disruptive, shown only when relevant) */}
+        {/* Operational No Feasible Route State (shown ONLY after area selected, route calculated, and infeasible) */}
         {!routeUpdateNotification &&
-          isRouteRelevant &&
+          routeStatus === 'NO_FEASIBLE_ROUTE' &&
           activeRoute &&
           !activeRoute.feasible &&
           !isRouteErrorDismissed && (
@@ -511,7 +602,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               <button
                 type="button"
                 onClick={() => setIsRouteErrorDismissed(true)}
-                className="text-slate-400 hover:text-white text-xs px-1"
+                className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
                 title="Dismiss route error notification"
               >
                 ✕
@@ -542,6 +633,14 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     </strong>
                   </div>
                 )}
+                {activeRoute.noRouteInfo?.nearestAvailableShelter && (
+                  <div>
+                    • Nearest available shelter:{' '}
+                    <strong className="text-cyan-300 font-mono">
+                      {activeRoute.noRouteInfo.nearestAvailableShelter.shelterName} ({activeRoute.noRouteInfo.nearestAvailableShelter.distanceKm} km)
+                    </strong>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -552,14 +651,14 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   const targetRoadId = activeRoute.noRouteInfo?.blockingRoadIds?.[0] ?? 'RD-05';
                   onSelectTarget({ type: 'ROAD', id: targetRoadId });
                 }}
-                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10.5px] text-cyan-300 font-mono transition-colors"
+                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10.5px] text-cyan-300 font-mono transition-colors cursor-pointer"
               >
                 View affected roads
               </button>
               <button
                 type="button"
                 onClick={() => onSelectTarget({ type: 'ASSET', id: 'AST-HOSP-02' })}
-                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10.5px] text-slate-300 hover:text-white font-mono transition-colors"
+                className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[10.5px] text-slate-300 hover:text-white font-mono transition-colors cursor-pointer"
               >
                 Try another destination
               </button>
@@ -573,6 +672,66 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 {activeRoute.noRouteInfo?.reason}
               </div>
             </details>
+          </div>
+        )}
+
+        {/* Active Feasible Route Banner */}
+        {routeStatus === 'FEASIBLE' && activeRoute && activeRoute.feasible && (
+          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#091524]/95 border border-cyan-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs">
+            <div className="flex items-center justify-between gap-2 border-b border-cyan-900/60 pb-1 mb-1">
+              <span className="text-cyan-300 font-bold flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                <span>ROUTE ACTIVE</span>
+              </span>
+              <span className="text-[10px] text-cyan-200">
+                {activeRoute.recommendedDistanceKm} km · {activeRoute.recommendedEtaMin} min
+              </span>
+            </div>
+            <div className="text-slate-100 text-xs font-sans">
+              Corridor: <strong className="font-mono text-cyan-200">{activeRoute.originName} → {activeRoute.destinationName}</strong>
+            </div>
+            <div className="text-[10px] text-emerald-300 mt-0.5">
+              ✓ {activeRoute.recommendationStatusLabel}
+            </div>
+          </div>
+        )}
+
+        {/* Active Evacuation Route Banner */}
+        {evacuationStatus === 'FEASIBLE' && evacuationRoute && evacuationRoute.assigned && (
+          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#061814]/95 border border-emerald-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs">
+            <div className="flex items-center justify-between gap-2 border-b border-emerald-900/60 pb-1 mb-1">
+              <span className="text-emerald-300 font-bold flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                <span>EVACUATION ROUTE ACTIVE</span>
+              </span>
+              <span className="text-[10px] text-emerald-200">
+                {evacuationRoute.distanceKm} km · ~{evacuationRoute.estimatedClearanceMin} min
+              </span>
+            </div>
+            <div className="text-slate-100 text-xs font-sans">
+              To: <strong className="font-mono text-emerald-200">{evacuationRoute.targetShelterName}</strong>
+            </div>
+            <div className="text-[10px] text-emerald-300 mt-0.5">
+              Buses Assigned: {evacuationRoute.busesAssigned} · {evacuationRoute.routeRoadNames.join(' → ')}
+            </div>
+          </div>
+        )}
+
+        {/* Infeasible Evacuation Plan Banner */}
+        {evacuationStatus === 'NO_FEASIBLE_EVACUATION' && evacuationRoute && (
+          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
+            <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
+              <div className="flex items-center gap-1.5 text-rose-300 font-bold">
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                <span>NO FEASIBLE EVACUATION PLAN</span>
+              </div>
+            </div>
+            <div className="text-slate-200 text-xs font-sans mb-1.5 leading-snug">
+              Evacuation unavailable for {evacuationRoute.sourceLocality}
+            </div>
+            <div className="text-[10.5px] text-rose-200/90 bg-rose-950/60 p-1.5 border border-rose-900/60">
+              <strong className="text-rose-300">Reason:</strong> {evacuationRoute.failureReason ?? 'All shelter corridors disconnected'}.
+            </div>
           </div>
         )}
 
@@ -756,7 +915,8 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               const x = cell.col * cellSize;
               const y = cell.row * cellSize;
               const isSelected =
-                selectedTarget.type === 'CELL' && selectedTarget.id === cell.id;
+                (selectedTarget?.type === 'CELL' && selectedTarget?.id === cell.id) ||
+                selectedArea?.id === cell.id;
               const sevMeta = SEVERITY_META[cell.severity];
 
               // Compute fill based on active 5-metric overlay
@@ -826,7 +986,10 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               return (
                 <g
                   key={cell.id}
-                  onClick={() => onSelectTarget({ type: 'CELL', id: cell.id })}
+                  onClick={() => {
+                    onSelectTarget({ type: 'CELL', id: cell.id });
+                    onSelectArea(cell);
+                  }}
                   onMouseEnter={() =>
                     setHoveredInfo(
                       `${cell.id} · ${cell.localityName} (${cell.wardCode}) · Prob ${Math.round(
@@ -1053,7 +1216,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               if (!fromNode || !toNode) return null;
 
               const isSelected =
-                selectedTarget.type === 'ROAD' && selectedTarget.id === road.id;
+                selectedTarget?.type === 'ROAD' && selectedTarget?.id === road.id;
               const statusMeta = ROAD_STATUS_META[road.currentState];
               const midX = (fromNode.x + toNode.x) / 2;
               const midY = (fromNode.y + toNode.y) / 2;
@@ -1357,6 +1520,81 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </g>
           )}
 
+          {/* 5b. Evacuation Route Corridor Overlay (Distinct Emerald Corridor along road network) */}
+          {layers.evacuationRoute && evacuationRoute && evacuationRoute.routeRoadIds.length > 0 && (
+            <g pointerEvents="none">
+              {evacuationRoute.routeRoadIds.map((rId, idx) => {
+                const r = roads.find((item) => item.id === rId);
+                if (!r) return null;
+                const f = nodeMap.get(r.fromNodeId);
+                const t = nodeMap.get(r.toNodeId);
+                if (!f || !t) return null;
+                const midX = (f.x + t.x) / 2;
+                const midY = (f.y + t.y) / 2;
+                return (
+                  <g key={`evac-corridor-${rId}-${idx}`}>
+                    {/* Base wider green glow */}
+                    <line
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#064E3B"
+                      strokeWidth="9"
+                      strokeLinecap="round"
+                      opacity="0.75"
+                    />
+                    {/* Vibrant pulsing emerald line */}
+                    <line
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#10B981"
+                      strokeWidth="5"
+                      strokeDasharray="14 6"
+                      strokeLinecap="round"
+                      markerEnd="url(#arrow-evac)"
+                    >
+                      <animate
+                        attributeName="stroke-dashoffset"
+                        from="40"
+                        to="0"
+                        dur="1.2s"
+                        repeatCount="indefinite"
+                      />
+                    </line>
+                    {idx === 0 && (
+                      <g transform={`translate(${midX}, ${midY + 18})`}>
+                        <rect
+                          x="-64"
+                          y="-9"
+                          width="128"
+                          height="16"
+                          rx="2"
+                          fill="#064E3B"
+                          stroke="#10B981"
+                          strokeWidth="1.2"
+                        />
+                        <text
+                          x="0"
+                          y="2.5"
+                          textAnchor="middle"
+                          fill="#A7F3D0"
+                          fontSize="8.5"
+                          fontFamily="IBM Plex Mono, monospace"
+                          fontWeight="700"
+                        >
+                          ▲ EVACUATION CORRIDOR
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          )}
+
           {/* 6. Intersection Nodes */}
           {layers.roads &&
             INTERSECTION_NODES.map((node) => {
@@ -1394,7 +1632,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             <>
               {CRITICAL_ASSETS.map((asset) => {
                 const isSelected =
-                  selectedTarget.type === 'ASSET' && selectedTarget.id === asset.id;
+                  selectedTarget?.type === 'ASSET' && selectedTarget?.id === asset.id;
                 const glyph =
                   asset.category === 'HOSPITAL'
                     ? '✚'
@@ -1474,7 +1712,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
               {shelters.map((sh) => {
                 const isSelected =
-                  selectedTarget.type === 'SHELTER' && selectedTarget.id === sh.id;
+                  selectedTarget?.type === 'SHELTER' && selectedTarget?.id === sh.id;
                 const occPct = Math.round((sh.currentOccupancy / Math.max(1, sh.totalCapacity)) * 100);
                 return (
                   <g
@@ -1544,7 +1782,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             )
             .map((s) => {
               const isSelected =
-                selectedTarget.type === 'SENSOR' && selectedTarget.id === s.id;
+                selectedTarget?.type === 'SENSOR' && selectedTarget?.id === s.id;
               const ringColor =
                 s.freshnessState === 'MISSING'
                   ? '#F43F5E'
@@ -1594,6 +1832,54 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 </g>
               );
             })}
+
+          {/* 9. Area Selection / Highlight Overlay (Prominent, High-Contrast Reticle & Focus Frame) */}
+          {selectedArea && (
+            <g pointerEvents="none">
+              <rect
+                x={selectedArea.col * cellSize}
+                y={selectedArea.row * cellSize}
+                width={cellSize}
+                height={cellSize}
+                fill="rgba(34, 211, 238, 0.08)"
+                stroke="#22D3EE"
+                strokeWidth="2.5"
+                strokeDasharray="6 3"
+              >
+                <animate
+                  attributeName="stroke-opacity"
+                  values="1;0.4;1"
+                  dur="2s"
+                  repeatCount="indefinite"
+                />
+              </rect>
+              {/* Corner bracket accents */}
+              <path
+                d={`M ${selectedArea.col * cellSize},${selectedArea.row * cellSize + 14} L ${selectedArea.col * cellSize},${selectedArea.row * cellSize} L ${selectedArea.col * cellSize + 14},${selectedArea.row * cellSize}`}
+                stroke="#38BDF8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path
+                d={`M ${selectedArea.col * cellSize + cellSize - 14},${selectedArea.row * cellSize} L ${selectedArea.col * cellSize + cellSize},${selectedArea.row * cellSize} L ${selectedArea.col * cellSize + cellSize},${selectedArea.row * cellSize + 14}`}
+                stroke="#38BDF8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path
+                d={`M ${selectedArea.col * cellSize},${selectedArea.row * cellSize + cellSize - 14} L ${selectedArea.col * cellSize},${selectedArea.row * cellSize + cellSize} L ${selectedArea.col * cellSize + 14},${selectedArea.row * cellSize + cellSize}`}
+                stroke="#38BDF8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+              <path
+                d={`M ${selectedArea.col * cellSize + cellSize - 14},${selectedArea.row * cellSize + cellSize} L ${selectedArea.col * cellSize + cellSize},${selectedArea.row * cellSize + cellSize} L ${selectedArea.col * cellSize + cellSize},${selectedArea.row * cellSize + cellSize - 14}`}
+                stroke="#38BDF8"
+                strokeWidth="3.5"
+                fill="none"
+              />
+            </g>
+          )}
         </svg>
 
         {/* Floating Bottom-Left Clean Context-Aware Legend */}

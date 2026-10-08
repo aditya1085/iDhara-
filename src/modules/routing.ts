@@ -1,6 +1,7 @@
 import { BASE_SHELTERS, INTERSECTION_NODES } from '../data/indorePilotData';
 import {
   ComputedPathDetail,
+  IntersectionNode,
   NoFeasibleRouteInfo,
   RoadSegmentState,
   RoadStatus,
@@ -415,6 +416,192 @@ function computeNoFeasibleRouteDiagnostics(
     blockingRoadNames,
     nearestReachableSafePoint: bestSafePoint,
     nearestAvailableShelter: nearestShelter,
+  };
+}
+
+export function findNearestNodeForCell(cell: { lat: number; lng: number }): IntersectionNode {
+  let best = INTERSECTION_NODES[0];
+  let bestDist = Number.POSITIVE_INFINITY;
+  for (const node of INTERSECTION_NODES) {
+    const d = Math.hypot(node.lat - cell.lat, node.lng - cell.lng);
+    if (d < bestDist) {
+      bestDist = d;
+      best = node;
+    }
+  }
+  return best;
+}
+
+/**
+ * Computes a single flood-aware route recommendation between two intersection nodes.
+ * Reuses the exact same Dijkstra solver, hazard avoidance, and diagnostics as the batch engine.
+ */
+export function computeSingleRoute(
+  originNodeId: string,
+  destinationNodeId: string,
+  roads: RoadSegmentState[],
+  params: ScenarioParameters,
+  travelProfile: TravelProfile = 'AMBULANCE'
+): RouteRecommendation {
+  const nodeMap = new Map(INTERSECTION_NODES.map((n) => [n.id, n]));
+  const roadMap = new Map(roads.map((r) => [r.id, r]));
+
+  const baseline = runDijkstraPath(
+    originNodeId,
+    destinationNodeId,
+    roads,
+    travelProfile,
+    false,
+    params,
+    'Dry Baseline Path'
+  );
+
+  const primaryRoute = runDijkstraPath(
+    originNodeId,
+    destinationNodeId,
+    roads,
+    travelProfile,
+    true,
+    params,
+    'Primary Route'
+  );
+
+  let alternativeRoute: ComputedPathDetail | null = null;
+  if (primaryRoute && primaryRoute.roadIds.length > 0) {
+    const penalizedSet = new Set<string>(primaryRoute.roadIds);
+    const candidateAlt = runDijkstraPath(
+      originNodeId,
+      destinationNodeId,
+      roads,
+      travelProfile,
+      true,
+      params,
+      'Alternative Route',
+      penalizedSet
+    );
+    if (
+      candidateAlt &&
+      candidateAlt.roadIds.join(',') !== primaryRoute.roadIds.join(',')
+    ) {
+      alternativeRoute = candidateAlt;
+    }
+  }
+
+  const baselineBlockedRoadNames = (baseline?.roadIds ?? [])
+    .map((id) => roadMap.get(id))
+    .filter((r): r is RoadSegmentState => r !== undefined)
+    .filter(
+      (r) =>
+        r.currentState === RoadStatus.CLOSED ||
+        r.currentState === RoadStatus.LIKELY_FLOODED ||
+        r.currentState === RoadStatus.AT_RISK
+    )
+    .map((r) => `${r.id}: ${r.name} (${r.currentState})`);
+
+  if (!primaryRoute) {
+    // NO FEASIBLE ROUTE — do not fabricate one!
+    const noRouteInfo = computeNoFeasibleRouteDiagnostics(
+      originNodeId,
+      destinationNodeId,
+      roads,
+      travelProfile,
+      params,
+      baseline
+    );
+    const prov = createProvenance(params.mode, 0.78, params.timelineHourOffset);
+    const expiryDate = new Date(
+      new Date(prov.generated_at).getTime() + 10 * 60 * 1000
+    );
+
+    return {
+      ...prov,
+      id: `RTE-PLANNER-${originNodeId}-${destinationNodeId}`,
+      originNodeId,
+      originName: nodeMap.get(originNodeId)?.name ?? originNodeId,
+      destinationNodeId,
+      destinationName: nodeMap.get(destinationNodeId)?.name ?? destinationNodeId,
+      travelProfile,
+      purpose:
+        travelProfile === 'AMBULANCE'
+          ? 'EMERGENCY_AMBULANCE'
+          : travelProfile === 'EMERGENCY_RESPONDER'
+          ? 'MUNICIPAL_RESPONSE'
+          : travelProfile === 'PEDESTRIAN'
+          ? 'EVACUATION_BUS'
+          : 'CITIZEN_TRANSIT',
+      expiry: expiryDate.toISOString(),
+      recommendationStatusLabel: 'Recommended under current data',
+      feasible: false,
+      primaryRoute: null,
+      alternativeRoute: null,
+      riskScore: 100,
+      noRouteInfo,
+      recommendedPathNodeIds: noRouteInfo.nearestReachableSafePoint?.pathRoadIds.length
+        ? [originNodeId, noRouteInfo.nearestReachableSafePoint.nodeId]
+        : [],
+      recommendedRoadIds: noRouteInfo.nearestReachableSafePoint?.pathRoadIds ?? [],
+      recommendedDistanceKm: 0,
+      recommendedEtaMin: 0,
+      maxEncounteredFloodProb: 1,
+      baselineShortestRoadIds: baseline?.roadIds ?? [],
+      baselineDistanceKm: baseline?.distanceKm ?? 0,
+      baselineBlockedRoadNames,
+      avoidedHazardCount: baselineBlockedRoadNames.length,
+      safetyAdvisory: `NO FEASIBLE ROUTE: ${noRouteInfo.reason}`,
+    };
+  }
+
+  const prov = createProvenance(
+    params.mode,
+    primaryRoute.confidence,
+    params.timelineHourOffset
+  );
+
+  const safetyAdvisory =
+    baselineBlockedRoadNames.length > 0
+      ? `Recommended under current data (${TRAVEL_PROFILE_POLICIES[travelProfile].label} profile). Diverts around ${
+          baselineBlockedRoadNames.length
+        } hazardous segment(s) (${baselineBlockedRoadNames.join(
+          ', '
+        )}). Never guaranteed safe; verify field telemetry before dispatch.`
+      : `Recommended under current data (${
+          TRAVEL_PROFILE_POLICIES[travelProfile].label
+        } profile). Route risk score ${primaryRoute.riskScore}/100 (max segment flood probability ${Math.round(
+          primaryRoute.maxFloodProbability * 100
+        )}%). Never guaranteed safe.`;
+
+  return {
+    ...prov,
+    id: `RTE-PLANNER-${originNodeId}-${destinationNodeId}`,
+    originNodeId,
+    originName: nodeMap.get(originNodeId)?.name ?? originNodeId,
+    destinationNodeId,
+    destinationName: nodeMap.get(destinationNodeId)?.name ?? destinationNodeId,
+    travelProfile,
+    purpose:
+      travelProfile === 'AMBULANCE'
+        ? 'EMERGENCY_AMBULANCE'
+        : travelProfile === 'EMERGENCY_RESPONDER'
+        ? 'MUNICIPAL_RESPONSE'
+        : travelProfile === 'PEDESTRIAN'
+        ? 'EVACUATION_BUS'
+        : 'CITIZEN_TRANSIT',
+    expiry: primaryRoute.expiry,
+    recommendationStatusLabel: 'Recommended under current data',
+    feasible: true,
+    primaryRoute,
+    alternativeRoute,
+    riskScore: primaryRoute.riskScore,
+    recommendedPathNodeIds: primaryRoute.nodeIds,
+    recommendedRoadIds: primaryRoute.roadIds,
+    recommendedDistanceKm: primaryRoute.distanceKm,
+    recommendedEtaMin: primaryRoute.travelTimeMin,
+    maxEncounteredFloodProb: primaryRoute.maxFloodProbability,
+    baselineShortestRoadIds: baseline?.roadIds ?? [],
+    baselineDistanceKm: baseline?.distanceKm ?? 0,
+    baselineBlockedRoadNames,
+    avoidedHazardCount: baselineBlockedRoadNames.length,
+    safetyAdvisory,
   };
 }
 
