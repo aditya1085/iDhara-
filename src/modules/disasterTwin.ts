@@ -195,15 +195,11 @@ export function evaluateIsolatedTwinScenario(
   if (baselineRoads && baselineRoads.length > 0) {
     const closedInBaseline = new Set(
       baselineRoads
-        .filter(
-          (r) =>
-            r.currentState === RoadStatus.CLOSED ||
-            r.currentState === RoadStatus.CLOSED_INUNDATED
-        )
+        .filter((r) => r.currentState === RoadStatus.CLOSED)
         .map((r) => r.id)
     );
     rawRoads = rawRoads.map((r) => {
-      if (closedInBaseline.has(r.id) && r.currentState !== RoadStatus.CLOSED && r.currentState !== RoadStatus.CLOSED_INUNDATED) {
+      if (closedInBaseline.has(r.id) && r.currentState !== RoadStatus.CLOSED) {
         return {
           ...r,
           currentState: RoadStatus.CLOSED,
@@ -258,16 +254,11 @@ export function evaluateIsolatedTwinScenario(
   const atRiskRoads = roads.filter(
     (r) =>
       r.currentState === RoadStatus.CLOSED ||
-      r.currentState === RoadStatus.CLOSED_INUNDATED ||
       r.currentState === RoadStatus.LIKELY_FLOODED ||
-      r.currentState === RoadStatus.RESTRICTED_SHALLOW ||
-      r.currentState === RoadStatus.AT_RISK ||
-      r.currentState === RoadStatus.CAUTION_WATERLOGGING
+      r.currentState === RoadStatus.AT_RISK
   );
   const closedRoads = roads.filter(
-    (r) =>
-      r.currentState === RoadStatus.CLOSED ||
-      r.currentState === RoadStatus.CLOSED_INUNDATED
+    (r) => r.currentState === RoadStatus.CLOSED
   );
 
   const cellMap = new Map(cells.map((c) => [c.id, c]));
@@ -386,16 +377,11 @@ export function buildCurrentTwinSnapshot(
   const atRiskRoads = roads.filter(
     (r) =>
       r.currentState === RoadStatus.CLOSED ||
-      r.currentState === RoadStatus.CLOSED_INUNDATED ||
       r.currentState === RoadStatus.LIKELY_FLOODED ||
-      r.currentState === RoadStatus.RESTRICTED_SHALLOW ||
-      r.currentState === RoadStatus.AT_RISK ||
-      r.currentState === RoadStatus.CAUTION_WATERLOGGING
+      r.currentState === RoadStatus.AT_RISK
   );
   const closedRoads = roads.filter(
-    (r) =>
-      r.currentState === RoadStatus.CLOSED ||
-      r.currentState === RoadStatus.CLOSED_INUNDATED
+    (r) => r.currentState === RoadStatus.CLOSED
   );
 
   const cellMap = new Map(cells.map((c) => [c.id, c]));
@@ -490,7 +476,7 @@ export function getDisasterTwinStages(
 ): TwinStageDescriptor[] {
   const critCount = cells.filter((c) => c.severity === FloodSeverity.CRITICAL).length;
   const closedCount = roads.filter(
-    (r) => r.currentState === RoadStatus.CLOSED_INUNDATED
+    (r) => r.currentState === RoadStatus.CLOSED
   ).length;
 
   return [

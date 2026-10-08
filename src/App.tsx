@@ -9,28 +9,25 @@ import { PILOT_SCOPE_ID } from './data/indorePilotData';
 import {
   AlertLifecycleOverride,
   createComposedAlert,
-  generateOperationalAlerts,
 } from './modules/alerts';
 import {
   DEFAULT_INJECTED_OBSERVATIONS,
-  ingestSensorTelemetry,
   wrapInEnvelope,
 } from './modules/dataIngestion';
-import { evaluateDataHealth } from './modules/dataQuality';
 import {
   DEFAULT_EVACUATION_CONFIG,
-  evaluateSheltersAndEvacuation,
   EvacuationConfig,
 } from './modules/evacuation';
 import { getPresetById, resolveTimelineStepParameters } from './modules/historicalReplay';
-import { predictFloodRiskGrid } from './modules/prediction';
-import { evaluateRoadNetworkState } from './modules/roadState';
 import {
-  computeRouteRecommendations,
+  AuthoritativePrototypeData,
+  evaluateAuthoritativePrototypeData,
+  verifyStateConsistency,
+} from './modules/prototypeDataStore';
+import {
   selectDemoIncidentRoad,
   TRAVEL_PROFILE_POLICIES,
 } from './modules/routing';
-import { generateValidationReport } from './modules/validation';
 import {
   ActivityFeedEntry,
   AlertComposerDraftInput,
@@ -238,57 +235,79 @@ export default function App() {
     });
   };
 
-  // Modular Service Pipeline Execution (every injected observation enters this same pipeline)
-  const sensors = useMemo(
-    () => ingestSensorTelemetry(params, injectedObservations),
-    [params, injectedObservations]
-  );
-
-  const cells = useMemo(() => {
-    const computed = predictFloodRiskGrid(
-      params,
-      sensors,
-      previousWarningsRef.current,
-      stableTicksElapsed,
-      injectedObservations
-    );
-    // Record peak effective warnings when stable or escalating
-    if (stableTicksElapsed >= 3) {
-      const nextMap = new Map<string, WarningLevel>();
-      computed.forEach((c) => nextMap.set(c.id, c.warningLevel));
-      previousWarningsRef.current = nextMap;
-    }
-    return computed;
-  }, [params, sensors, stableTicksElapsed, injectedObservations]);
-
-  const roads = useMemo(() => {
-    const computedRoads = evaluateRoadNetworkState(
-      cells,
-      sensors,
+  // Single Deterministic Authoritative Prototype Data Source
+  // Ensures exactly the same road, sensor, shelter, rainfall, and risk-cell objects
+  // are shared across Risk Map, Disaster Twin, Roads & Routing, Evacuation, Alerts, and Validation.
+  const prototypeData: AuthoritativePrototypeData = useMemo(() => {
+    return evaluateAuthoritativePrototypeData({
       params,
       injectedObservations,
-      previousRoadStatesRef.current,
-      stableTicksElapsed
-    );
+      previousWarnings: previousWarningsRef.current,
+      previousRoadStates: previousRoadStatesRef.current,
+      stableTicksElapsed,
+      customOriginId,
+      customDestId,
+      travelProfile,
+      evacuationConfig,
+      acknowledgedAlerts,
+      alertLifecycleOverrides,
+      customAlerts,
+      activeModelVersionId,
+    });
+  }, [
+    params,
+    injectedObservations,
+    stableTicksElapsed,
+    customOriginId,
+    customDestId,
+    travelProfile,
+    evacuationConfig,
+    acknowledgedAlerts,
+    alertLifecycleOverrides,
+    customAlerts,
+    activeModelVersionId,
+  ]);
+
+  const {
+    sensors,
+    cells,
+    roads,
+    shelters,
+    evacuationPlans,
+    evacuationModeActive,
+    evacuationTriggerReason,
+    routes,
+    alerts,
+    validationReport,
+    dataHealthReport,
+    overallPilotRisk,
+    overallWarningLevel,
+    disasterTwinBaseline,
+  } = prototypeData;
+
+  // Verify full multi-module state propagation & consistency
+  useEffect(() => {
+    const consistencyCheck = verifyStateConsistency(prototypeData);
+    if (!consistencyCheck.isValid) {
+      console.warn(
+        '[iDhara Consistency Invariant Violation]',
+        consistencyCheck.violations
+      );
+    }
+  }, [prototypeData]);
+
+  // Synchronize hysteresis memory on stable ticks
+  useEffect(() => {
     if (stableTicksElapsed >= 3) {
+      const nextMap = new Map<string, WarningLevel>();
+      cells.forEach((c) => nextMap.set(c.id, c.warningLevel));
+      previousWarningsRef.current = nextMap;
+
       const nextRoadMap = new Map<string, RoadStatus>();
-      computedRoads.forEach((r) => nextRoadMap.set(r.id, r.currentState));
+      roads.forEach((r) => nextRoadMap.set(r.id, r.currentState));
       previousRoadStatesRef.current = nextRoadMap;
     }
-    return computedRoads;
-  }, [cells, sensors, params, injectedObservations, stableTicksElapsed]);
-
-  const routes = useMemo(
-    () =>
-      computeRouteRecommendations(
-        roads,
-        params,
-        customOriginId,
-        customDestId,
-        travelProfile
-      ),
-    [roads, params, customOriginId, customDestId, travelProfile]
-  );
+  }, [cells, roads, stableTicksElapsed]);
 
   // Track road state transitions and route recalculations in real time
   const prevClosedIdsRef = useRef<Set<string> | null>(null);
@@ -798,16 +817,6 @@ export default function App() {
     );
   };
 
-  const {
-    shelters,
-    evacuationPlans,
-    evacuationModeActive,
-    evacuationTriggerReason,
-  } = useMemo(
-    () => evaluateSheltersAndEvacuation(cells, params, roads, evacuationConfig),
-    [cells, params, roads, evacuationConfig]
-  );
-
   const handleToggleManualEvacuation = () => {
     setEvacuationConfig((prev) => ({
       ...prev,
@@ -929,28 +938,6 @@ export default function App() {
       );
     }
   };
-
-  const alerts = useMemo(
-    () =>
-      generateOperationalAlerts(
-        cells,
-        roads,
-        sensors,
-        params,
-        acknowledgedAlerts,
-        alertLifecycleOverrides,
-        customAlerts
-      ),
-    [
-      cells,
-      roads,
-      sensors,
-      params,
-      acknowledgedAlerts,
-      alertLifecycleOverrides,
-      customAlerts,
-    ]
-  );
 
   const handleTransitionAlertLifecycle = (
     alertId: string,
@@ -1117,16 +1104,6 @@ export default function App() {
     return () => window.clearInterval(pulseTimer);
   }, [cells, sensors, roads, activeRoute]);
 
-  const validationReport = useMemo(
-    () => generateValidationReport(cells, params, activeModelVersionId),
-    [cells, params, activeModelVersionId]
-  );
-
-  const dataHealthReport = useMemo(
-    () => evaluateDataHealth(sensors, params),
-    [sensors, params]
-  );
-
   const systemEnvelope = useMemo(
     () =>
       wrapInEnvelope(
@@ -1137,26 +1114,6 @@ export default function App() {
       ),
     [params.mode, dataHealthReport.confidence, params.timelineHourOffset, cells.length, roads.length]
   );
-
-  // Overall Pilot Risk Level & Warning Level derived from current cell predictions
-  const { overallPilotRisk, overallWarningLevel } = useMemo(() => {
-    const critCount = cells.filter((c) => c.severity === FloodSeverity.CRITICAL).length;
-    const highCount = cells.filter((c) => c.severity === FloodSeverity.HIGH).length;
-    const redCount = cells.filter((c) => c.warningLevel === WarningLevel.RED).length;
-    const orangeCount = cells.filter((c) => c.warningLevel === WarningLevel.ORANGE).length;
-
-    let risk = FloodSeverity.LOW;
-    if (critCount >= 4) risk = FloodSeverity.CRITICAL;
-    else if (critCount >= 1 || highCount >= 4) risk = FloodSeverity.HIGH;
-    else if (highCount >= 1) risk = FloodSeverity.MODERATE;
-
-    let warn = WarningLevel.GREEN;
-    if (redCount >= 2) warn = WarningLevel.RED;
-    else if (redCount >= 1 || orangeCount >= 2) warn = WarningLevel.ORANGE;
-    else if (orangeCount >= 1 || highCount >= 1) warn = WarningLevel.YELLOW;
-
-    return { overallPilotRisk: risk, overallWarningLevel: warn };
-  }, [cells]);
 
   // Timeline Autoplay Handler (Supports 1x / 2x / 5x speed)
   useEffect(() => {
@@ -1493,6 +1450,7 @@ export default function App() {
               baselineSensors={sensors}
               baselineShelters={shelters}
               baselineRoutes={routes}
+              baselineEvacuationPlans={evacuationPlans}
               injectedObservations={injectedObservations}
               selectedTarget={selectedTarget}
               onSelectTarget={setSelectedTarget}

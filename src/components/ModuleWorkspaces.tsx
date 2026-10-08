@@ -842,7 +842,11 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                       </button>
                     </div>
                   </>
-                ) : null}
+                ) : (
+                  <div className="text-slate-300 text-xs font-sans">
+                    No directly reachable shelter with open road access. Coordinate with Control Room for high-clearance SDRF staging.
+                  </div>
+                )}
               </div>
             </div>
           </div>

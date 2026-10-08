@@ -6,14 +6,13 @@ import {
   INTERSECTION_NODES,
 } from '../data/indorePilotData';
 import {
-  DataHealthSummary,
+  AlertItem,
+  DataHealthReport,
   DisasterStage,
-  EvacuationConfig,
   EvacuationPlanItem,
   FloodRiskCell,
   FloodSeverity,
   InjectedObservationState,
-  OperationalAlertItem,
   ProductMode,
   RoadSegmentState,
   RoadStatus,
@@ -26,9 +25,13 @@ import {
   WarningLevel,
 } from '../types/idhara';
 import { generateOperationalAlerts } from './alerts';
-import { evaluateDataHealth, ingestSensorTelemetry } from './dataIngestion';
+import { ingestSensorTelemetry } from './dataIngestion';
+import { evaluateDataHealth } from './dataQuality';
 import { buildCurrentTwinSnapshot, IsolatedTwinSnapshot } from './disasterTwin';
-import { evaluateSheltersAndEvacuation } from './evacuation';
+import {
+  evaluateSheltersAndEvacuation,
+  EvacuationConfig,
+} from './evacuation';
 import { predictFloodRiskGrid } from './prediction';
 import { evaluateRoadNetworkState } from './roadState';
 import { computeRouteRecommendations } from './routing';
@@ -57,10 +60,12 @@ export interface AuthoritativePrototypeData {
   roads: RoadSegmentState[];
   shelters: Shelter[];
   evacuationPlans: EvacuationPlanItem[];
+  evacuationModeActive: boolean;
+  evacuationTriggerReason: string;
   routes: RouteRecommendation[];
-  alerts: OperationalAlertItem[];
+  alerts: AlertItem[];
   validationReport: ValidationReport;
-  dataHealthReport: DataHealthSummary;
+  dataHealthReport: DataHealthReport;
   overallPilotRisk: FloodSeverity;
   overallWarningLevel: WarningLevel;
   disasterTwinBaseline: IsolatedTwinSnapshot;
@@ -78,7 +83,7 @@ export interface PrototypePipelineInput {
   evacuationConfig?: EvacuationConfig;
   acknowledgedAlerts?: Set<string>;
   alertLifecycleOverrides?: Record<string, any>;
-  customAlerts?: OperationalAlertItem[];
+  customAlerts?: AlertItem[];
   activeModelVersionId?: string;
 }
 
@@ -144,7 +149,12 @@ export function evaluateAuthoritativePrototypeData(
   );
 
   // 5. Evacuation & Shelter Logistics (allocates civilian bus routing around closed corridors)
-  const { shelters, evacuationPlans } = evaluateSheltersAndEvacuation(
+  const {
+    shelters,
+    evacuationPlans,
+    evacuationModeActive,
+    evacuationTriggerReason,
+  } = evaluateSheltersAndEvacuation(
     cells,
     params,
     roads,
@@ -209,6 +219,8 @@ export function evaluateAuthoritativePrototypeData(
     roads,
     shelters,
     evacuationPlans,
+    evacuationModeActive,
+    evacuationTriggerReason,
     routes,
     alerts,
     validationReport,
@@ -250,13 +262,19 @@ export function verifyStateConsistency(data: AuthoritativePrototypeData): {
   if (data.disasterTwinBaseline.shelters !== data.shelters) {
     violations.push('Disaster Twin baseline shelters does not match authoritative shelters array');
   }
+  if (data.disasterTwinBaseline.evacuationPlans !== data.evacuationPlans) {
+    violations.push('Disaster Twin baseline evacuationPlans does not match authoritative evacuationPlans array');
+  }
+  if (data.disasterTwinBaseline.routes !== data.routes) {
+    violations.push('Disaster Twin baseline routes does not match authoritative routes array');
+  }
 
   // Check 3: If RD-05 is CLOSED, verify all downstream modules reflect it
   const rd05 = data.roads.find((r) => r.id === 'RD-05');
   if (rd05 && rd05.currentState === RoadStatus.CLOSED) {
     // 3a. Disaster Twin baseline must show RD-05 as CLOSED
     const twinRd05 = data.disasterTwinBaseline.roads.find((r) => r.id === 'RD-05');
-    if (!twinRd05 || (twinRd05.currentState !== RoadStatus.CLOSED && twinRd05.currentState !== RoadStatus.CLOSED_INUNDATED)) {
+    if (!twinRd05 || twinRd05.currentState !== RoadStatus.CLOSED) {
       violations.push('RD-05 is CLOSED in roads but not CLOSED in Disaster Twin baseline');
     }
 
@@ -269,8 +287,8 @@ export function verifyStateConsistency(data: AuthoritativePrototypeData): {
 
     // 3c. Evacuation plans must not route through RD-05
     data.evacuationPlans.forEach((plan) => {
-      if (plan.status === 'ASSIGNED' && plan.evacuationPathRoadIds.includes('RD-05')) {
-        violations.push(`Evacuation plan for ${plan.zoneId} routes through CLOSED road RD-05`);
+      if (plan.assigned && plan.routeRoadIds.includes('RD-05')) {
+        violations.push(`Evacuation plan for ${plan.sourceCellId} routes through CLOSED road RD-05`);
       }
     });
 

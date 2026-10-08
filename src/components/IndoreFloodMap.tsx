@@ -1110,74 +1110,129 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 })}
 
               {/* Primary Route (Calibrated Cyan Corridor + Safe Route Callout) */}
-              {activeRoute.recommendedRoadIds.map((rId, idx) => {
-                const r = roads.find((item) => item.id === rId);
-                if (!r) return null;
-                const f = nodeMap.get(r.fromNodeId);
-                const t = nodeMap.get(r.toNodeId);
-                if (!f || !t) return null;
-                const midX = (f.x + t.x) / 2;
-                const midY = (f.y + t.y) / 2;
-                return (
-                  <g key={`rec-${rId}-${activeRoute.recommendedRoadIds.join('-')}`}>
-                    <line
-                      x1={f.x}
-                      y1={f.y}
-                      x2={t.x}
-                      y2={t.y}
-                      stroke="#0891B2"
-                      strokeWidth="8"
-                      strokeLinecap="round"
-                      opacity="0.6"
-                    />
-                    <line
-                      x1={f.x}
-                      y1={f.y}
-                      x2={t.x}
-                      y2={t.y}
-                      stroke="#22D3EE"
-                      strokeWidth="4.5"
-                      strokeDasharray="12 6"
-                      strokeLinecap="round"
-                      markerEnd="url(#arrow-route)"
-                      filter="url(#route-glow)"
-                    >
-                      <animate
-                        attributeName="stroke-dashoffset"
-                        from="36"
-                        to="0"
-                        dur="1.1s"
-                        repeatCount="indefinite"
+              {activeRoute.feasible &&
+                activeRoute.recommendedRoadIds.map((rId, idx) => {
+                  const r = roads.find((item) => item.id === rId);
+                  if (!r) return null;
+                  const f = nodeMap.get(r.fromNodeId);
+                  const t = nodeMap.get(r.toNodeId);
+                  if (!f || !t) return null;
+                  const midX = (f.x + t.x) / 2;
+                  const midY = (f.y + t.y) / 2;
+                  return (
+                    <g key={`rec-${rId}-${activeRoute.recommendedRoadIds.join('-')}`}>
+                      <line
+                        x1={f.x}
+                        y1={f.y}
+                        x2={t.x}
+                        y2={t.y}
+                        stroke="#0891B2"
+                        strokeWidth="8"
+                        strokeLinecap="round"
+                        opacity="0.6"
                       />
-                    </line>
-                    {idx === 1 && (
-                      <g transform={`translate(${midX}, ${midY + 16})`}>
-                        <rect
-                          x="-62"
-                          y="-9"
-                          width="124"
-                          height="16"
-                          rx="2"
-                          fill="#083344"
-                          stroke="#22D3EE"
-                          strokeWidth="1.2"
+                      <line
+                        x1={f.x}
+                        y1={f.y}
+                        x2={t.x}
+                        y2={t.y}
+                        stroke="#22D3EE"
+                        strokeWidth="4.5"
+                        strokeDasharray="12 6"
+                        strokeLinecap="round"
+                        markerEnd="url(#arrow-route)"
+                        filter="url(#route-glow)"
+                      >
+                        <animate
+                          attributeName="stroke-dashoffset"
+                          from="36"
+                          to="0"
+                          dur="1.1s"
+                          repeatCount="indefinite"
                         />
-                        <text
-                          x="0"
-                          y="2.5"
-                          textAnchor="middle"
-                          fill="#A5F3FC"
-                          fontSize="8.5"
-                          fontFamily="IBM Plex Mono, monospace"
-                          fontWeight="700"
-                        >
-                          ✓ RECOMMENDED ROUTE
-                        </text>
+                      </line>
+                      {idx === 1 && (
+                        <g transform={`translate(${midX}, ${midY + 16})`}>
+                          <rect
+                            x="-62"
+                            y="-9"
+                            width="124"
+                            height="16"
+                            rx="2"
+                            fill="#083344"
+                            stroke="#22D3EE"
+                            strokeWidth="1.2"
+                          />
+                          <text
+                            x="0"
+                            y="2.5"
+                            textAnchor="middle"
+                            fill="#A5F3FC"
+                            fontSize="8.5"
+                            fontFamily="IBM Plex Mono, monospace"
+                            fontWeight="700"
+                          >
+                            ✓ RECOMMENDED ROUTE
+                          </text>
+                        </g>
+                      )}
+                    </g>
+                  );
+                })}
+
+              {/* No Route Remaining: Highlight safe staging point connection if available */}
+              {!activeRoute.feasible &&
+                activeRoute.noRouteInfo?.nearestReachableSafePoint?.pathRoadIds.map(
+                  (rId, idx) => {
+                    const r = roads.find((item) => item.id === rId);
+                    if (!r) return null;
+                    const f = nodeMap.get(r.fromNodeId);
+                    const t = nodeMap.get(r.toNodeId);
+                    if (!f || !t) return null;
+                    const midX = (f.x + t.x) / 2;
+                    const midY = (f.y + t.y) / 2;
+                    return (
+                      <g key={`safepath-${rId}`}>
+                        <line
+                          x1={f.x}
+                          y1={f.y}
+                          x2={t.x}
+                          y2={t.y}
+                          stroke="#10B981"
+                          strokeWidth="4"
+                          strokeDasharray="6 4"
+                          strokeLinecap="round"
+                          opacity="0.85"
+                        />
+                        {idx === 0 && (
+                          <g transform={`translate(${midX}, ${midY + 16})`}>
+                            <rect
+                              x="-68"
+                              y="-9"
+                              width="136"
+                              height="16"
+                              rx="2"
+                              fill="#064E3B"
+                              stroke="#10B981"
+                              strokeWidth="1.2"
+                            />
+                            <text
+                              x="0"
+                              y="2.5"
+                              textAnchor="middle"
+                              fill="#A7F3D0"
+                              fontSize="8"
+                              fontFamily="IBM Plex Mono, monospace"
+                              fontWeight="700"
+                            >
+                              ● PATH TO SAFE POINT
+                            </text>
+                          </g>
+                        )}
                       </g>
-                    )}
-                  </g>
-                );
-              })}
+                    );
+                  }
+                )}
             </g>
           )}
 

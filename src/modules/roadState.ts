@@ -75,11 +75,17 @@ export function evaluateRoadNetworkState(
 
     const crowdBoostProb = crowdReport ? Math.min(0.22, crowdReport.count * 0.11) : 0;
     const structureAmplifier = seg.hasUnderpassOrBridge ? 1.12 : 0.94;
+    const elevDamping = Math.max(
+      0.20,
+      Math.min(1.0, 1 - (seg.lowPointElevationM - 544.0) * 0.07)
+    );
 
     let floodProbability = Number(
       Math.min(
         0.99,
-        maxAdjProb * structureAmplifier + sensorBoostProb + crowdBoostProb
+        maxAdjProb * structureAmplifier * Math.sqrt(elevDamping) +
+          sensorBoostProb +
+          crowdBoostProb
       ).toFixed(2)
     );
 
@@ -95,9 +101,9 @@ export function evaluateRoadNetworkState(
       officialOverride === 'OPEN'
         ? Math.min(8, Math.round(maxAdjDepth * 0.25))
         : officialOverride === 'LIKELY_FLOODED'
-        ? Math.max(32, Math.round(maxAdjDepth * structureAmplifier + 18))
+        ? Math.max(32, Math.round(maxAdjDepth * structureAmplifier * elevDamping + 18))
         : Math.round(
-            maxAdjDepth * structureAmplifier +
+            maxAdjDepth * structureAmplifier * elevDamping +
               sensorBoostProb * 85 +
               crowdBoostProb * 60
           );

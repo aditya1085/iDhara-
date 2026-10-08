@@ -117,9 +117,9 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
       roads
         .filter(
           (r) =>
-            r.currentState === RoadStatus.CLOSED_INUNDATED ||
-            r.currentState === RoadStatus.RESTRICTED_SHALLOW ||
-            r.currentState === RoadStatus.CAUTION_WATERLOGGING
+            r.currentState === RoadStatus.CLOSED ||
+            r.currentState === RoadStatus.LIKELY_FLOODED ||
+            r.currentState === RoadStatus.AT_RISK
         )
         .sort((a, b) => b.floodProbability - a.floodProbability),
     [roads]
@@ -1187,7 +1187,7 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-slate-400">Water & Medical:</span>
                   <span className="text-cyan-300">
-                    {(inspectedShelter.drinkingWaterLiters / 1000).toFixed(1)}k L ·{' '}
+                    {((inspectedShelter.drinkingWaterLiters || 0) / 1000).toFixed(1)}k L ·{' '}
                     {inspectedShelter.medicalTeamPresent ? 'Medical Team On-Site' : 'Standby'}
                   </span>
                 </div>

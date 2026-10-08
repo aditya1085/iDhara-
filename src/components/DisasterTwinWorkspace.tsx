@@ -15,6 +15,7 @@ import {
 import {
   DISASTER_STAGE_INFO,
   DisasterStage,
+  EvacuationPlanItem,
   FloodRiskCell,
   FloodSeverity,
   InjectedObservationState,
@@ -47,6 +48,7 @@ interface DisasterTwinWorkspaceProps {
   baselineSensors?: SensorNode[];
   baselineShelters?: Shelter[];
   baselineRoutes?: RouteRecommendation[];
+  baselineEvacuationPlans?: EvacuationPlanItem[];
   injectedObservations?: InjectedObservationState;
   selectedTarget: MapInspectionTarget;
   onSelectTarget: (target: MapInspectionTarget) => void;
@@ -63,6 +65,7 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   baselineSensors,
   baselineShelters,
   baselineRoutes,
+  baselineEvacuationPlans,
   injectedObservations,
   selectedTarget,
   onSelectTarget,
@@ -109,7 +112,7 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
         baselineCells,
         baselineRoads,
         baselineShelters,
-        [],
+        baselineEvacuationPlans ?? [],
         baselineRoutes
       );
     }
@@ -130,6 +133,7 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
     baselineRoads,
     baselineShelters,
     baselineRoutes,
+    baselineEvacuationPlans,
     injectedObservations,
   ]);
 
@@ -478,11 +482,9 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
                 ROAD_STATUS_META[road.currentState] ?? ROAD_STATUS_META[RoadStatus.OPEN];
               const baseRoad = currentRoadMap.get(road.id);
               const wasClosedInBase =
-                baseRoad?.currentState === RoadStatus.CLOSED ||
-                baseRoad?.currentState === RoadStatus.CLOSED_INUNDATED;
+                baseRoad?.currentState === RoadStatus.CLOSED;
               const isClosedNow =
-                road.currentState === RoadStatus.CLOSED ||
-                road.currentState === RoadStatus.CLOSED_INUNDATED;
+                road.currentState === RoadStatus.CLOSED;
               const newlyClosed = isScenarioPane && !wasClosedInBase && isClosedNow;
 
               return (
