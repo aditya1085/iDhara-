@@ -295,8 +295,9 @@ export const RoadStateIndicator: React.FC<{ state: RoadStatus }> = ({ state }) =
 export const ProvenanceStrip: React.FC<{
   provenance: DataProvenance;
   expiry?: string;
+  freshness?: string;
   compact?: boolean;
-}> = ({ provenance, expiry, compact = false }) => {
+}> = ({ provenance, expiry, freshness = 'FRESH (<60s)', compact = false }) => {
   const modeMeta = MODE_META[provenance.mode];
   const genTime = provenance.generated_at.slice(11, 19) + 'Z';
   const asOfTime = provenance.data_as_of.slice(11, 19) + 'Z';
@@ -312,10 +313,12 @@ export const ProvenanceStrip: React.FC<{
       <span>SCOPE: {provenance.scope_id}</span>
       <span aria-hidden="true">·</span>
       <span className="text-slate-300">CONF: {confPct}%</span>
+      <span aria-hidden="true">·</span>
+      <span className="text-emerald-400">FRESHNESS: {freshness}</span>
       {!compact && (
         <>
           <span aria-hidden="true">·</span>
-          <span>GEN: {genTime}</span>
+          <span>TIMESTAMP: {genTime}</span>
           <span aria-hidden="true">·</span>
           <span>AS_OF: {asOfTime}</span>
         </>
@@ -326,6 +329,69 @@ export const ProvenanceStrip: React.FC<{
           <span className="text-amber-300">EXP: {expTime}</span>
         </>
       )}
+    </div>
+  );
+};
+
+/**
+ * Mandatory Data Honesty Strip for every major screen:
+ * Clearly shows mode · scope · timestamp · confidence · freshness
+ */
+export const ScreenHonestyHeader: React.FC<{
+  screenTitle: string;
+  screenSubtle?: string;
+  mode: ProductMode;
+  scopeId: string;
+  timestamp: string;
+  confidencePct: number;
+  freshnessLabel: string;
+}> = ({
+  screenTitle,
+  screenSubtle,
+  mode,
+  scopeId,
+  timestamp,
+  confidencePct,
+  freshnessLabel,
+}) => {
+  const modeMeta = MODE_META[mode];
+  const cleanTime = timestamp.includes('T')
+    ? timestamp.slice(11, 19) + ' UTC'
+    : timestamp;
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 bg-[#060911] border border-slate-800/90 font-mono text-[11px] tabular-nums">
+      <div className="flex items-center gap-2">
+        <span className="text-slate-100 font-semibold tracking-tight">{screenTitle}</span>
+        {screenSubtle && (
+          <>
+            <span className="text-slate-600" aria-hidden="true">·</span>
+            <span className="text-slate-400">{screenSubtle}</span>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px]">
+        <span className={`font-semibold ${modeMeta.accentText}`}>
+          {modeMeta.indicatorSymbol} MODE: {mode}
+        </span>
+        <span className="text-slate-600" aria-hidden="true">·</span>
+        <span className="text-slate-300">
+          SCOPE: <strong className="text-white font-semibold">{scopeId}</strong>
+        </span>
+        <span className="text-slate-600" aria-hidden="true">·</span>
+        <span className="text-slate-300">
+          TIMESTAMP: <strong className="text-slate-100 font-normal">{cleanTime}</strong>
+        </span>
+        <span className="text-slate-600" aria-hidden="true">·</span>
+        <span className="text-slate-300">
+          CONFIDENCE: <strong className="text-cyan-300 font-semibold">{confidencePct}%</strong>
+        </span>
+        <span className="text-slate-600" aria-hidden="true">·</span>
+        <span className="text-slate-300">
+          FRESHNESS: <strong className="text-emerald-400 font-semibold">{freshnessLabel}</strong>
+        </span>
+      </div>
     </div>
   );
 };

@@ -23,6 +23,7 @@ import {
   ProvenanceStrip,
   ROAD_STATUS_META,
   RoadStateIndicator,
+  ScreenHonestyHeader,
   SEVERITY_META,
   SeverityIndicator,
   WARNING_LEVEL_META,
@@ -241,23 +242,38 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
               </radialGradient>
             </defs>
 
-            {/* Continuous Flood-Risk Heatmap Underlay */}
+            {/* Continuous Flood-Risk Heatmap Underlay + Iso-Risk Contours */}
             {snapshot.cells
               .filter(
                 (c) =>
                   c.severity === FloodSeverity.CRITICAL ||
                   c.severity === FloodSeverity.HIGH
               )
-              .map((c) => (
-                <circle
-                  key={`glow-${c.id}`}
-                  cx={(c.col + 0.5) * cellSize}
-                  cy={(c.row + 0.5) * cellSize}
-                  r={c.severity === FloodSeverity.CRITICAL ? 150 : 110}
-                  fill={`url(#glow-crit-${isScenarioPane ? 'scen' : 'cur'})`}
-                  pointerEvents="none"
-                />
-              ))}
+              .map((c) => {
+                const cx = (c.col + 0.5) * cellSize;
+                const cy = (c.row + 0.5) * cellSize;
+                const isCrit = c.severity === FloodSeverity.CRITICAL;
+                return (
+                  <g key={`glow-${c.id}`} pointerEvents="none">
+                    <circle
+                      cx={cx}
+                      cy={cy}
+                      r={isCrit ? 155 : 115}
+                      fill={`url(#glow-crit-${isScenarioPane ? 'scen' : 'cur'})`}
+                    />
+                    <ellipse
+                      cx={cx}
+                      cy={cy}
+                      rx={isCrit ? 76 : 62}
+                      ry={isCrit ? 66 : 54}
+                      fill="none"
+                      stroke={isCrit ? 'rgba(248, 113, 113, 0.72)' : 'rgba(251, 146, 60, 0.45)'}
+                      strokeWidth={isCrit ? 1.5 : 1.1}
+                      strokeDasharray={isCrit ? 'none' : '5 3'}
+                    />
+                  </g>
+                );
+              })}
 
             {/* 64 Spatial Cells */}
             {snapshot.cells.map((cell) => {
@@ -502,7 +518,18 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#060911] p-4 space-y-4">
+    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-[#060911] p-4 space-y-3">
+      {/* 0. MANDATORY DATA HONESTY STRIP (mode · scope · timestamp · confidence · freshness) */}
+      <ScreenHonestyHeader
+        screenTitle="DISASTER TWIN WORKSPACE"
+        screenSubtle="Isolated Hydrological What-If Simulation"
+        mode={activeScenario.mode}
+        scopeId={activeScenario.scope_id}
+        timestamp={activeScenario.generated_at}
+        confidencePct={Math.round(activeScenario.confidence * 100)}
+        freshnessLabel="SYNTHETIC HORIZON (+30m..+120m)"
+      />
+
       {/* 1. VERY PROMINENT "SIMULATION — NOT LIVE" ISOLATION BANNER */}
       <div className="p-3 bg-amber-950/50 border-2 border-amber-400/80 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">

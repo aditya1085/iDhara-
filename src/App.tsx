@@ -41,6 +41,7 @@ import {
   NavigationTab,
   ObservationInjectionType,
   ProductMode,
+  ReplaySpeed,
   RoadStatus,
   RouteUpdateNotification,
   ScenarioParameters,
@@ -198,6 +199,10 @@ export default function App() {
   >({});
   const [customAlerts, setCustomAlerts] = useState<AlertItem[]>([]);
   const [isPlayingTimeline, setIsPlayingTimeline] = useState<boolean>(false);
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(1);
+  const [activeModelVersionId, setActiveModelVersionId] = useState<string>(
+    'v2.4.2-indore-pilot'
+  );
 
   // Modular Service Pipeline Execution (every injected observation enters this same pipeline)
   const sensors = useMemo(
@@ -1047,8 +1052,8 @@ export default function App() {
   }, [cells, sensors, roads, activeRoute]);
 
   const validationReport = useMemo(
-    () => generateValidationReport(cells, params),
-    [cells, params]
+    () => generateValidationReport(cells, params, activeModelVersionId),
+    [cells, params, activeModelVersionId]
   );
 
   const dataHealthReport = useMemo(
@@ -1087,17 +1092,51 @@ export default function App() {
     return { overallPilotRisk: risk, overallWarningLevel: warn };
   }, [cells]);
 
-  // Timeline Autoplay Handler
+  // Timeline Autoplay Handler (Supports 1x / 2x / 5x speed)
   useEffect(() => {
     if (!isPlayingTimeline) return;
+    const intervalMs = Math.max(440, Math.round(2200 / replaySpeed));
     const timer = window.setInterval(() => {
       updateParamsWithHysteresis((prev) => {
-        const nextHour = prev.timelineHourOffset >= 4 ? -3 : prev.timelineHourOffset + 1;
+        const nextHour =
+          prev.timelineHourOffset >= 4 ? -3 : prev.timelineHourOffset + 1;
         return resolveTimelineStepParameters(prev, nextHour);
       });
-    }, 2200);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [isPlayingTimeline]);
+  }, [isPlayingTimeline, replaySpeed]);
+
+  const handleStepTimeline = (deltaHours: number) => {
+    setIsPlayingTimeline(false);
+    updateParamsWithHysteresis((prev) => {
+      let nextHour = prev.timelineHourOffset + deltaHours;
+      if (nextHour > 4) nextHour = -3;
+      if (nextHour < -3) nextHour = 4;
+      return resolveTimelineStepParameters(prev, nextHour);
+    });
+  };
+
+  const handleChangeModelVersionId = (versionId: string) => {
+    setActiveModelVersionId(versionId);
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-MDL-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'PREDICTION' as const,
+          eventTypeLabel: 'Prediction changed' as const,
+          message: `Switched Post-Disaster Learning model version to ${versionId}`,
+          detail:
+            versionId === 'v2.5.0-calibrated-candidate'
+              ? 'Applied secondary culvert surcharge calibration (+7% nallah weight) & 45% threshold.'
+              : `Evaluating validation metrics under ${versionId}.`,
+          severity: 'INFO' as const,
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
 
   const handleAcknowledgeAlert = (id: string) => {
     setAcknowledgedAlerts((prev) => {
@@ -1420,6 +1459,13 @@ export default function App() {
                 onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
                 onComposeAlert={handleComposeAlert}
                 validationReport={validationReport}
+                isPlayingTimeline={isPlayingTimeline}
+                onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
+                replaySpeed={replaySpeed}
+                onChangeReplaySpeed={setReplaySpeed}
+                onStepTimeline={handleStepTimeline}
+                activeModelVersionId={activeModelVersionId}
+                onChangeModelVersionId={handleChangeModelVersionId}
                 dataHealthReport={dataHealthReport}
                 activeRole={activeRole}
                 onSelectMapTarget={setSelectedTarget}
@@ -1472,15 +1518,50 @@ export default function App() {
 
       {/* 5. BOTTOM EVENT TIMELINE (PAST · NOW · NEXT FORECAST PERIOD) */}
       <footer className="px-4 py-2 bg-[#0A0F1A] border-t border-slate-800/90 flex flex-wrap items-center justify-between gap-3 font-mono text-xs shrink-0">
-        {/* Timeline Play + Past / Now / Forecast Period Selector */}
-        <div className="flex items-center gap-2 overflow-x-auto">
+        {/* Timeline Play + Step Backward/Forward + Speed 1x/2x/5x + Past / Now / Forecast Period Selector */}
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => handleStepTimeline(-1)}
+            className="px-2 py-1.5 bg-[#0D1320] hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold whitespace-nowrap"
+            title="Step backward 1 hour"
+          >
+            ⏮
+          </button>
+
           <button
             type="button"
             onClick={() => setIsPlayingTimeline((p) => !p)}
             className="px-3 py-1.5 bg-cyan-950/70 hover:bg-cyan-900/80 border border-cyan-500/60 text-cyan-200 font-semibold whitespace-nowrap transition-colors"
           >
-            {isPlayingTimeline ? '❚❚ Pause' : '▶ Auto-Advance'}
+            {isPlayingTimeline ? '❚❚ Pause' : '▶ Play'}
           </button>
+
+          <button
+            type="button"
+            onClick={() => handleStepTimeline(1)}
+            className="px-2 py-1.5 bg-[#0D1320] hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold whitespace-nowrap"
+            title="Step forward 1 hour"
+          >
+            ⏭
+          </button>
+
+          <div className="flex items-center gap-0.5 mr-1">
+            {([1, 2, 5] as ReplaySpeed[]).map((spd) => (
+              <button
+                key={spd}
+                type="button"
+                onClick={() => setReplaySpeed(spd)}
+                className={`px-1.5 py-1 border text-[10.5px] font-bold ${
+                  replaySpeed === spd
+                    ? 'bg-cyan-500/25 border-cyan-400 text-cyan-200'
+                    : 'bg-[#0D1320] border-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {spd}x
+              </button>
+            ))}
+          </div>
 
           <div className="flex items-center gap-1">
             {activePreset.hourlyRainProfile.map((step) => {

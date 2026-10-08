@@ -45,6 +45,7 @@ const MAP_METRIC_OPTIONS: Array<{ id: MapSurfaceMetric; label: string }> = [
   { id: 'UNCERTAINTY', label: 'Uncertainty' },
   { id: 'DATA_CONFIDENCE', label: 'Data confidence' },
   { id: 'RAINFALL', label: 'Rainfall' },
+  { id: 'PREDICTED_VS_OBSERVED', label: 'Pred vs Obs (FN)' },
 ];
 
 export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
@@ -61,6 +62,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   const [layers, setLayers] = useState({
     pilotBoundary: true,
     heatmapGlow: true,
+    riskContours: true,
     gridCells: true,
     patterns: true,
     drainage: true,
@@ -273,7 +275,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 : 'bg-[#0D1422] border-slate-700 text-slate-200 hover:bg-slate-800'
             }`}
           >
-            ≡ Layers ({Object.values(layers).filter(Boolean).length}/11)
+            ≡ Layers ({Object.values(layers).filter(Boolean).length}/12)
           </button>
 
           {showLayerMenu && (
@@ -291,6 +293,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               {[
                 { key: 'pilotBoundary', label: '5×5 km Pilot Boundary' },
                 { key: 'heatmapGlow', label: 'Continuous Flood Heatmap' },
+                { key: 'riskContours', label: 'Iso-Risk Contours (74% / 52%)' },
                 { key: 'gridCells', label: '64-Cell Risk Matrix' },
                 { key: 'patterns', label: 'Non-Hue Hatch Patterns' },
                 { key: 'drainage', label: 'Kahn & Saraswati Rivers' },
@@ -347,14 +350,33 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
       {/* Main Interactive SVG Geospatial Viewport */}
       <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070C]">
-        {/* Top-Left Prototype / Mode Watermark Stamp on Map */}
-        <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-2 bg-[#090D16]/90 border border-slate-800 px-2.5 py-1 font-mono text-[11px]">
+        {/* Top-Left Data Honesty HUD Stamp on Map (mode · scope · timestamp · confidence · freshness) */}
+        <div className="absolute top-2.5 left-2.5 z-10 pointer-events-none flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-[#070B13]/95 border border-slate-800 px-2.5 py-1 font-mono text-[10.5px] tabular-nums">
           <span className={`font-semibold ${modeMeta.accentText}`}>
-            {modeMeta.indicatorSymbol} {mode} PROTOTYPE LAYER
+            {modeMeta.indicatorSymbol} MODE: {mode}
           </span>
           <span className="text-slate-600">·</span>
           <span className="text-slate-300">
-            Active View: {MAP_METRIC_OPTIONS.find((m) => m.id === metricOverlay)?.label}
+            SCOPE: <strong className="text-white font-semibold">{PILOT_SCOPE_ID}</strong>
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-300">
+            TS: <strong className="text-slate-100 font-normal">18:42:10 UTC</strong>
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-300">
+            CONF:{' '}
+            <strong className="text-cyan-300 font-semibold">
+              {Math.round(
+                (cells.reduce((acc, c) => acc + c.confidence, 0) / Math.max(1, cells.length)) *
+                  100
+              )}
+              %
+            </strong>
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className="text-emerald-400 font-semibold">
+            FRESHNESS: {sensors.filter((s) => s.freshnessState === 'FRESH').length}/{sensors.length} FRESH
           </span>
         </div>
 
@@ -437,15 +459,16 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </pattern>
 
             <radialGradient id="heatmap-critical" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#EF4444" stopOpacity="0.52" />
-              <stop offset="55%" stopColor="#F97316" stopOpacity="0.24" />
-              <stop offset="100%" stopColor="#F97316" stopOpacity="0" />
+              <stop offset="0%" stopColor="#EF4444" stopOpacity="0.60" />
+              <stop offset="48%" stopColor="#F97316" stopOpacity="0.30" />
+              <stop offset="82%" stopColor="#0EA5E9" stopOpacity="0.10" />
+              <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
             </radialGradient>
 
             <radialGradient id="heatmap-high" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#F97316" stopOpacity="0.40" />
-              <stop offset="60%" stopColor="#EAB308" stopOpacity="0.16" />
-              <stop offset="100%" stopColor="#EAB308" stopOpacity="0" />
+              <stop offset="0%" stopColor="#F97316" stopOpacity="0.45" />
+              <stop offset="55%" stopColor="#EAB308" stopOpacity="0.20" />
+              <stop offset="100%" stopColor="#0EA5E9" stopOpacity="0" />
             </radialGradient>
 
             <filter id="route-glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -465,7 +488,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               .map((c) => {
                 const cx = (c.col + 0.5) * cellSize;
                 const cy = (c.row + 0.5) * cellSize;
-                const radius = c.severity === FloodSeverity.CRITICAL ? 155 : 120;
+                const radius = c.severity === FloodSeverity.CRITICAL ? 168 : 128;
                 return (
                   <circle
                     key={`heat-${c.id}`}
@@ -481,6 +504,59 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   />
                 );
               })}
+
+          {/* 0B. Signature Iso-Risk Topographic Contours (74% CRITICAL & 52% HIGH Iso-Lines) */}
+          {layers.riskContours &&
+            (metricOverlay === 'FLOOD_PROBABILITY' || metricOverlay === 'SEVERITY') && (
+              <g pointerEvents="none">
+                {cells
+                  .filter((c) => c.floodProbability >= 0.52)
+                  .map((c) => {
+                    const cx = (c.col + 0.5) * cellSize;
+                    const cy = (c.row + 0.5) * cellSize;
+                    const isCrit = c.floodProbability >= 0.74;
+                    return (
+                      <g key={`contour-${c.id}`}>
+                        {/* Outer 52% HIGH Iso-Risk Contour Ring */}
+                        <ellipse
+                          cx={cx}
+                          cy={cy}
+                          rx={isCrit ? 84 : 68}
+                          ry={isCrit ? 74 : 60}
+                          fill="none"
+                          stroke={isCrit ? 'rgba(251, 146, 60, 0.50)' : 'rgba(234, 179, 8, 0.45)'}
+                          strokeWidth="1.2"
+                          strokeDasharray="6 3"
+                        />
+                        {/* Inner 74% CRITICAL Iso-Risk Contour Ring */}
+                        {isCrit && (
+                          <>
+                            <ellipse
+                              cx={cx}
+                              cy={cy}
+                              rx={56}
+                              ry={48}
+                              fill="none"
+                              stroke="rgba(248, 113, 113, 0.80)"
+                              strokeWidth="1.6"
+                            />
+                            <text
+                              x={cx + 38}
+                              y={cy - 34}
+                              fill="#FCA5A5"
+                              fontSize="8.5"
+                              fontFamily="IBM Plex Mono, monospace"
+                              fontWeight="600"
+                            >
+                              74% ISO
+                            </text>
+                          </>
+                        )}
+                      </g>
+                    );
+                  })}
+              </g>
+            )}
 
           {/* 1. 64-Cell Hydrological Risk Grid */}
           {layers.gridCells &&
@@ -529,6 +605,30 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     : r >= 35
                     ? 'rgba(56, 189, 248, 0.26)'
                     : 'rgba(125, 211, 252, 0.12)';
+              } else if (metricOverlay === 'PREDICTED_VS_OBSERVED') {
+                const isFnPocket =
+                  cell.id === 'CELL-R3C1' ||
+                  cell.id === 'CELL-R4C2' ||
+                  cell.id === 'CELL-R5C2' ||
+                  cell.id === 'CELL-R2C4';
+                const predFlood =
+                  cell.floodProbability >= 0.5 || cell.predictedDepthCm >= 26;
+                const obsFlood =
+                  (cell.observedDepthCm ?? cell.predictedDepthCm) >= 25 ||
+                  (isFnPocket && cell.floodProbability >= 0.41);
+
+                if (!predFlood && obsFlood) {
+                  // FALSE NEGATIVE — Visually Prominent Crimson
+                  fillStyle = 'rgba(244, 63, 94, 0.52)';
+                } else if (predFlood && obsFlood) {
+                  // TRUE POSITIVE — Verified Emerald
+                  fillStyle = 'rgba(16, 185, 129, 0.34)';
+                } else if (predFlood && !obsFlood) {
+                  // FALSE POSITIVE — Over-warn Amber
+                  fillStyle = 'rgba(245, 158, 11, 0.30)';
+                } else {
+                  fillStyle = 'rgba(15, 23, 42, 0.45)';
+                }
               }
 
               return (
@@ -635,6 +735,10 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                           `Conf ${Math.round(cell.confidence * 100)}% · ${cell.freshnessLabel}`}
                         {metricOverlay === 'RAINFALL' &&
                           `1h: ${cell.predictionInput.rainfall_1h}mm · 3h: ${cell.predictionInput.rainfall_3h}mm`}
+                        {metricOverlay === 'PREDICTED_VS_OBSERVED' &&
+                          `Pred ${cell.predictedDepthCm}cm vs Obs ${
+                            cell.observedDepthCm ?? cell.predictedDepthCm
+                          }cm`}
                       </text>
                     </g>
                   )}
@@ -810,24 +914,62 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 : activeRoute.avoidedHazardCount > 0
                 ? activeRoute.baselineShortestRoadIds
                 : []
-              ).map((rId) => {
+              ).map((rId, idx) => {
                 const r = roads.find((item) => item.id === rId);
                 if (!r) return null;
                 const f = nodeMap.get(r.fromNodeId);
                 const t = nodeMap.get(r.toNodeId);
                 if (!f || !t) return null;
+                const midX = (f.x + t.x) / 2;
+                const midY = (f.y + t.y) / 2;
                 return (
-                  <line
-                    key={`base-${rId}`}
-                    x1={f.x}
-                    y1={f.y}
-                    x2={t.x}
-                    y2={t.y}
-                    stroke="#F43F5E"
-                    strokeWidth="4"
-                    strokeDasharray="4 6"
-                    opacity="0.85"
-                  />
+                  <g key={`base-${rId}`}>
+                    <line
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#991B1B"
+                      strokeWidth="8"
+                      strokeLinecap="round"
+                      opacity="0.45"
+                    />
+                    <line
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#F43F5E"
+                      strokeWidth="4"
+                      strokeDasharray="5 5"
+                      opacity="0.95"
+                    />
+                    {idx === 1 && (
+                      <g transform={`translate(${midX}, ${midY - 16})`}>
+                        <rect
+                          x="-52"
+                          y="-9"
+                          width="104"
+                          height="16"
+                          rx="2"
+                          fill="#450A0A"
+                          stroke="#F43F5E"
+                          strokeWidth="1.2"
+                        />
+                        <text
+                          x="0"
+                          y="2.5"
+                          textAnchor="middle"
+                          fill="#FECDD3"
+                          fontSize="8.5"
+                          fontFamily="IBM Plex Mono, monospace"
+                          fontWeight="700"
+                        >
+                          ✖ BLOCKED CORRIDOR
+                        </text>
+                      </g>
+                    )}
+                  </g>
                 );
               })}
 
@@ -855,13 +997,15 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   );
                 })}
 
-              {/* Primary Route (Animated Cyan Flow) */}
-              {activeRoute.recommendedRoadIds.map((rId) => {
+              {/* Primary Route (Calibrated Cyan Corridor + Safe Route Callout) */}
+              {activeRoute.recommendedRoadIds.map((rId, idx) => {
                 const r = roads.find((item) => item.id === rId);
                 if (!r) return null;
                 const f = nodeMap.get(r.fromNodeId);
                 const t = nodeMap.get(r.toNodeId);
                 if (!f || !t) return null;
+                const midX = (f.x + t.x) / 2;
+                const midY = (f.y + t.y) / 2;
                 return (
                   <g key={`rec-${rId}-${activeRoute.recommendedRoadIds.join('-')}`}>
                     <line
@@ -870,9 +1014,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                       x2={t.x}
                       y2={t.y}
                       stroke="#0891B2"
-                      strokeWidth="7"
+                      strokeWidth="8"
                       strokeLinecap="round"
-                      opacity="0.55"
+                      opacity="0.6"
                     />
                     <line
                       x1={f.x}
@@ -893,6 +1037,31 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                         repeatCount="indefinite"
                       />
                     </line>
+                    {idx === 1 && (
+                      <g transform={`translate(${midX}, ${midY + 16})`}>
+                        <rect
+                          x="-62"
+                          y="-9"
+                          width="124"
+                          height="16"
+                          rx="2"
+                          fill="#083344"
+                          stroke="#22D3EE"
+                          strokeWidth="1.2"
+                        />
+                        <text
+                          x="0"
+                          y="2.5"
+                          textAnchor="middle"
+                          fill="#A5F3FC"
+                          fontSize="8.5"
+                          fontFamily="IBM Plex Mono, monospace"
+                          fontWeight="700"
+                        >
+                          ✓ RECOMMENDED ROUTE
+                        </text>
+                      </g>
+                    )}
                   </g>
                 );
               })}
@@ -1144,10 +1313,20 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </div>
           )}
 
+          {metricOverlay === 'PREDICTED_VS_OBSERVED' && (
+            <div className="flex flex-wrap items-center gap-3 mb-1.5 text-[10.5px]">
+              <span className="text-rose-400 font-bold">✖ FALSE NEGATIVE (Missed Flood)</span>
+              <span className="text-emerald-300">● TRUE POSITIVE (Hit)</span>
+              <span className="text-amber-300">▲ FALSE POSITIVE (Over-warned)</span>
+              <span className="text-slate-400">○ TRUE NEGATIVE</span>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-slate-800/80 pt-1">
             <span className="text-sky-400">┅┅ 5×5km Pilot</span>
+            <span className="text-orange-300">◌ Iso-Risk Contours</span>
             <span className="text-cyan-300">━ Recommended Route</span>
-            <span className="text-rose-400">┅✖┅ Closed Bridge</span>
+            <span className="text-rose-400">┅✖┅ Blocked Corridor</span>
             <span className="text-cyan-300">◉WL / ◉RG Sensors</span>
             <span className="text-emerald-300">▲S Shelter</span>
             <span className="text-sky-300">✚ Hospital</span>

@@ -19,6 +19,7 @@ import {
   NavigationTab,
   ObservationInjectionType,
   ProductMode,
+  ReplaySpeed,
   RoadSegmentState,
   RoadStatus,
   RouteRecommendation,
@@ -33,6 +34,7 @@ import {
 import { AlertCommandWorkspace } from './AlertCommandWorkspace';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import { LiveFeedSimulator } from './LiveFeedSimulator';
+import { PostDisasterLearningWorkspace } from './PostDisasterLearningWorkspace';
 import {
   ProvenanceStrip,
   RoadStateIndicator,
@@ -82,6 +84,13 @@ interface ModuleWorkspaceProps {
   ) => void;
   onComposeAlert: (draft: AlertComposerDraftInput) => void;
   validationReport: ValidationReport;
+  isPlayingTimeline: boolean;
+  onTogglePlayTimeline: () => void;
+  replaySpeed: ReplaySpeed;
+  onChangeReplaySpeed: (speed: ReplaySpeed) => void;
+  onStepTimeline: (deltaHours: number) => void;
+  activeModelVersionId: string;
+  onChangeModelVersionId: (versionId: string) => void;
   dataHealthReport: DataHealthReport;
   activeRole: UserRole;
   onSelectMapTarget: (target: MapInspectionTarget) => void;
@@ -128,6 +137,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
   onTransitionAlertLifecycle,
   onComposeAlert,
   validationReport,
+  isPlayingTimeline,
+  onTogglePlayTimeline,
+  replaySpeed,
+  onChangeReplaySpeed,
+  onStepTimeline,
+  activeModelVersionId,
+  onChangeModelVersionId,
   dataHealthReport,
   activeRole,
   onSelectMapTarget,
@@ -1634,238 +1650,27 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     );
   }
 
-  // 7. EVENT REPLAY WORKSPACE
-  if (activeTab === 'event-replay') {
-    const presets = getEventPresets();
-    const activePreset =
-      presets.find((p) => p.id === params.activeEventPresetId) ?? presets[0];
-
+  // 7 & 8. EVENT REPLAY & POST-DISASTER LEARNING / VALIDATION WORKSPACE
+  if (activeTab === 'event-replay' || activeTab === 'validation') {
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[54vh] overflow-y-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="font-mono text-[11px] text-amber-300">
-              DETERMINISTIC HISTORICAL & SCENARIO EVENT REPLAY
-            </div>
-            <h2 className="text-base font-semibold text-white">
-              Indore Monsoon Cloudburst Profiles & Hourly Hydrograph Scrubber
-            </h2>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {presets.map((preset) => {
-            const isSelected = preset.id === params.activeEventPresetId;
-            return (
-              <div
-                key={preset.id}
-                onClick={() =>
-                  onUpdateParams((prev) => ({
-                    ...prev,
-                    activeEventPresetId: preset.id,
-                    mode: preset.mode,
-                    rainfallIntensityMmHr: preset.peakRainfallMmHr,
-                    drainageBlockagePct: preset.drainageBlockagePct,
-                    upstreamKahnInflowMultiplier: preset.upstreamMultiplier,
-                    timelineHourOffset: 0,
-                    stage: DisasterStage.REAL_TIME_ONGOING,
-                  }))
-                }
-                className={`p-3 border cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-amber-950/30 border-amber-500/70'
-                    : 'bg-[#0C121E] border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between font-mono text-[11px]">
-                  <span className="text-amber-300 font-semibold">MODE: {preset.mode}</span>
-                  <span className="text-slate-400 tabular-nums">Peak {preset.peakRainfallMmHr} mm/hr</span>
-                </div>
-                <div className="text-xs font-semibold text-white mt-1">
-                  {preset.title}
-                </div>
-                <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                  {preset.summary}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="p-3 bg-[#0C121E] border border-slate-800">
-          <div className="flex items-center justify-between font-mono text-xs text-slate-300 mb-2">
-            <span>HOURLY RAINFALL & STAGE PROFILE — {activePreset.title}</span>
-            <span className="text-cyan-300">Click any hour bar to scrub the map</span>
-          </div>
-          <div className="grid grid-cols-8 gap-2 items-end h-28 pt-4 px-2 bg-[#070B12] border border-slate-800/80">
-            {activePreset.hourlyRainProfile.map((step) => {
-              const isCurrent = params.timelineHourOffset === step.hourOffset;
-              const heightPct = Math.max(12, Math.round((step.mmHr / 95) * 100));
-              return (
-                <button
-                  key={step.hourOffset}
-                  type="button"
-                  onClick={() =>
-                    onUpdateParams((prev) => ({
-                      ...prev,
-                      mode: activePreset.mode,
-                      stage: step.stage,
-                      rainfallIntensityMmHr: step.mmHr,
-                      timelineHourOffset: step.hourOffset,
-                    }))
-                  }
-                  className="flex flex-col items-center justify-end h-full group cursor-pointer"
-                >
-                  <span className="font-mono text-[10px] text-slate-300 tabular-nums mb-1">
-                    {step.mmHr}mm
-                  </span>
-                  <div
-                    className={`w-full transition-all ${
-                      isCurrent
-                        ? 'bg-cyan-400 border border-white'
-                        : step.mmHr >= 55
-                        ? 'bg-rose-500/70 group-hover:bg-rose-400'
-                        : step.mmHr >= 30
-                        ? 'bg-amber-500/70 group-hover:bg-amber-400'
-                        : 'bg-sky-500/60 group-hover:bg-sky-400'
-                    }`}
-                    style={{ height: `${heightPct}%` }}
-                  />
-                  <span
-                    className={`font-mono text-[10px] mt-1 truncate max-w-full ${
-                      isCurrent ? 'text-cyan-300 font-semibold' : 'text-slate-400'
-                    }`}
-                  >
-                    {step.label.split(' ')[0]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 8. VALIDATION & POST-DISASTER LEARNING WORKSPACE
-  if (activeTab === 'validation') {
-    return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-4 max-h-[54vh] overflow-y-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="font-mono text-[11px] text-cyan-400">
-              STAGE 4: POST-DISASTER LEARNING & HIGH-WATER MARK (HWM) VALIDATION
-            </div>
-            <h2 className="text-base font-semibold text-white">
-              Predicted vs. Observed Inundation Audit ({validationReport.eventTitle})
-            </h2>
-          </div>
-          <ProvenanceStrip provenance={validationReport} compact />
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800">
-            <div className="font-mono text-[10.5px] text-slate-400">CRITICAL SUCCESS INDEX</div>
-            <div className="text-xl font-mono font-semibold text-emerald-300 tabular-nums mt-0.5">
-              {(validationReport.criticalSuccessIndex * 100).toFixed(0)}%
-            </div>
-            <div className="font-mono text-[10px] text-slate-500">CSI Threat Score</div>
-          </div>
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800">
-            <div className="font-mono text-[10.5px] text-slate-400">PROBABILITY OF DETECTION</div>
-            <div className="text-xl font-mono font-semibold text-cyan-300 tabular-nums mt-0.5">
-              {(validationReport.probabilityOfDetection * 100).toFixed(0)}%
-            </div>
-            <div className="font-mono text-[10px] text-slate-500">POD Hit Rate</div>
-          </div>
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800">
-            <div className="font-mono text-[10.5px] text-slate-400">FALSE ALARM RATIO</div>
-            <div className="text-xl font-mono font-semibold text-amber-300 tabular-nums mt-0.5">
-              {(validationReport.falseAlarmRatio * 100).toFixed(0)}%
-            </div>
-            <div className="font-mono text-[10px] text-slate-500">FAR Over-warn</div>
-          </div>
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800">
-            <div className="font-mono text-[10.5px] text-slate-400">MEAN ABS DEPTH ERROR</div>
-            <div className="text-xl font-mono font-semibold text-white tabular-nums mt-0.5">
-              ±{validationReport.meanAbsoluteDepthErrorCm} cm
-            </div>
-            <div className="font-mono text-[10px] text-slate-500">Across 64 Grid Cells</div>
-          </div>
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800">
-            <div className="font-mono text-[10.5px] text-slate-400">BRIER SKILL SCORE</div>
-            <div className="text-xl font-mono font-semibold text-sky-300 tabular-nums mt-0.5">
-              {validationReport.brierScore}
-            </div>
-            <div className="font-mono text-[10px] text-slate-500">Probabilistic Calibration</div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          <div className="p-3 bg-[#0C121E] border border-slate-800 space-y-2">
-            <div className="font-mono text-xs text-cyan-300 font-semibold">
-              POST-EVENT MODEL CALIBRATION UPDATES (LEARN STEP)
-            </div>
-            {validationReport.calibrationRecommendations.map((rec) => (
-              <div
-                key={rec.id}
-                className="p-2 bg-[#080C14] border border-slate-800/90 text-xs space-y-0.5"
-              >
-                <div className="text-slate-200 font-medium">{rec.parameter}</div>
-                <div className="font-mono text-[11px] text-slate-400">
-                  Adjustment: <span className="text-amber-300">{rec.proposedAdjustment}</span>
-                </div>
-                <div className="font-mono text-[11px] text-emerald-400">
-                  Gain: {rec.expectedGain}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="overflow-x-auto border border-slate-800">
-            <table className="w-full text-left border-collapse font-mono text-xs">
-              <thead>
-                <tr className="bg-[#0C121E] text-slate-400 border-b border-slate-800">
-                  <th className="py-1.5 px-2.5">Cell Locality</th>
-                  <th className="py-1.5 px-2.5 text-right">Pred</th>
-                  <th className="py-1.5 px-2.5 text-right">Obs HWM</th>
-                  <th className="py-1.5 px-2.5 text-right">Delta</th>
-                  <th className="py-1.5 px-2.5">Diagnosis</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {validationReport.records.slice(0, 7).map((rec) => (
-                  <tr
-                    key={rec.cellId}
-                    onClick={() => onSelectMapTarget({ type: 'CELL', id: rec.cellId })}
-                    className="hover:bg-slate-900/80 cursor-pointer"
-                  >
-                    <td className="py-1.5 px-2.5 text-slate-200 font-sans">
-                      {rec.localityName}
-                    </td>
-                    <td className="py-1.5 px-2.5 text-right tabular-nums text-slate-300">
-                      {rec.predictedDepthCm} cm
-                    </td>
-                    <td className="py-1.5 px-2.5 text-right tabular-nums text-white">
-                      {rec.observedDepthCm} cm
-                    </td>
-                    <td
-                      className={`py-1.5 px-2.5 text-right tabular-nums ${
-                        Math.abs(rec.errorCm) <= 4 ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                    >
-                      {rec.errorCm > 0 ? `+${rec.errorCm}` : rec.errorCm} cm
-                    </td>
-                    <td className="py-1.5 px-2.5 text-slate-400 truncate max-w-[180px]">
-                      {rec.learningNote}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      <PostDisasterLearningWorkspace
+        activeTab={activeTab}
+        params={params}
+        onUpdateParams={onUpdateParams}
+        cells={cells}
+        roads={roads}
+        sensors={sensors}
+        routes={routes}
+        validationReport={validationReport}
+        isPlayingTimeline={isPlayingTimeline}
+        onTogglePlayTimeline={onTogglePlayTimeline}
+        replaySpeed={replaySpeed}
+        onChangeReplaySpeed={onChangeReplaySpeed}
+        onStepTimeline={onStepTimeline}
+        activeModelVersionId={activeModelVersionId}
+        onChangeModelVersionId={onChangeModelVersionId}
+        onSelectMapTarget={onSelectMapTarget}
+      />
     );
   }
 

@@ -50,7 +50,10 @@ export type MapSurfaceMetric =
   | 'SEVERITY'
   | 'UNCERTAINTY'
   | 'DATA_CONFIDENCE'
-  | 'RAINFALL';
+  | 'RAINFALL'
+  | 'PREDICTED_VS_OBSERVED';
+
+export type ReplaySpeed = 1 | 2 | 5;
 
 export interface CellPredictionInput {
   rainfall_1h: number;
@@ -554,29 +557,112 @@ export interface HistoricalEventPreset {
   drainageBlockagePct: number;
   upstreamMultiplier: number;
   summary: string;
-  hourlyRainProfile: Array<{ hourOffset: number; label: string; mmHr: number; stage: DisasterStage }>;
+  hourlyRainProfile: Array<{
+    hourOffset: number;
+    label: string;
+    mmHr: number;
+    stage: DisasterStage;
+  }>;
 }
+
+export type ValidationOutcomeCategory =
+  | 'TRUE_POSITIVE'
+  | 'FALSE_NEGATIVE'
+  | 'FALSE_POSITIVE'
+  | 'TRUE_NEGATIVE';
 
 export interface CellValidationRecord {
   cellId: string;
+  wardCode: string;
   localityName: string;
+  predictedProbability: number; // 0.0 - 1.0
+  predictedFloodLabel: boolean;
+  observedFloodLabel: boolean;
+  outcomeCategory: ValidationOutcomeCategory;
   predictedDepthCm: number;
   observedDepthCm: number;
   errorCm: number;
+  predictedLeadTimeMin: number;
+  observedOnsetMin: number;
+  leadTimeErrorMin: number;
   predictedSeverity: FloodSeverity;
   observedSeverity: FloodSeverity;
   classificationMatch: 'EXACT_MATCH' | 'UNDER_PREDICTED' | 'OVER_PREDICTED';
   learningNote: string;
+  rootCauseDriver: string;
+}
+
+export interface CalibrationBin {
+  binLabel: string;
+  midpointProbPct: number;
+  meanPredictedPct: number;
+  observedFrequencyPct: number;
+  cellCount: number;
+  floodedCount: number;
+  calibrationGapPct: number;
+}
+
+export interface ModelVersionMetadata {
+  id: string;
+  currentModel: string;
+  version: string;
+  trainingSnapshot: string;
+  validationScore: string;
+  releaseDate: string;
+  decisionThresholdProb: number;
+  drainageProxyBoost: number;
+  statusLabel: string;
 }
 
 export interface ValidationReport extends DataProvenance {
   eventTitle: string;
-  brierScore: number; // lower is better, e.g., 0.084
+  precision: number; // 0-1
+  recall: number; // 0-1
+  f1Score: number; // 0-1
+  prAuc: number; // 0-1
+  iouScore: number; // 0-1 (Intersection over Union)
+  brierScore: number; // lower is better, e.g., 0.068
+  leadTimeErrorMin: number; // mean absolute lead-time error in minutes
+  leadTimeBiasMin: number; // signed lead-time error in minutes
   criticalSuccessIndex: number; // CSI 0-1
   probabilityOfDetection: number; // POD 0-1
   falseAlarmRatio: number; // FAR 0-1
   meanAbsoluteDepthErrorCm: number;
+  truePositivesCount: number;
+  falseNegativesCount: number;
+  falsePositivesCount: number;
+  trueNegativesCount: number;
   records: CellValidationRecord[];
+  falseNegativeRecords: CellValidationRecord[];
+  calibrationBins: CalibrationBin[];
+  seventyPercentBinExplanation: string;
+  hourlyComparisonTimeline: Array<{
+    hourOffset: number;
+    label: string;
+    mmHr: number;
+    predictedRiskZones: number;
+    observedFloodZones: number;
+    roadClosuresCount: number;
+    routeChangesCount: number;
+    falseNegativesAtStep: number;
+    observationsSummary: string;
+    roadStatesSummary: string;
+    routeChangeSummary: string;
+  }>;
+  modelVersion: ModelVersionMetadata;
+  candidateModelVersion: ModelVersionMetadata;
+  learningLoopSteps: Array<{
+    stepNumber: number;
+    stage:
+      | 'Event'
+      | 'Ground truth'
+      | 'Validation'
+      | 'Error analysis'
+      | 'Threshold/model improvement';
+    title: string;
+    summary: string;
+    keyArtifact: string;
+  }>;
   calibrationRecommendations: Array<{
     id: string;
     parameter: string;
