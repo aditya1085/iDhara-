@@ -8,7 +8,9 @@ import { getEventPresets } from '../modules/historicalReplay';
 import { TRAVEL_PROFILE_POLICIES } from '../modules/routing';
 import {
   ActivityFeedEntry,
+  AlertComposerDraftInput,
   AlertItem,
+  AlertLifecycleState,
   DataHealthReport,
   DisasterStage,
   EvacuationPlanItem,
@@ -28,6 +30,7 @@ import {
   UserRole,
   ValidationReport,
 } from '../types/idhara';
+import { AlertCommandWorkspace } from './AlertCommandWorkspace';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import { LiveFeedSimulator } from './LiveFeedSimulator';
 import {
@@ -73,6 +76,11 @@ interface ModuleWorkspaceProps {
   onTriggerNoFeasibleRouteDemo: () => void;
   alerts: AlertItem[];
   onAcknowledgeAlert: (id: string) => void;
+  onTransitionAlertLifecycle: (
+    alertId: string,
+    nextState: AlertLifecycleState
+  ) => void;
+  onComposeAlert: (draft: AlertComposerDraftInput) => void;
   validationReport: ValidationReport;
   dataHealthReport: DataHealthReport;
   activeRole: UserRole;
@@ -117,6 +125,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
   onTriggerNoFeasibleRouteDemo,
   alerts,
   onAcknowledgeAlert,
+  onTransitionAlertLifecycle,
+  onComposeAlert,
   validationReport,
   dataHealthReport,
   activeRole,
@@ -133,8 +143,31 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     (r) => r.currentState === RoadStatus.LIKELY_FLOODED
   );
 
-  // 1. OVERVIEW / MISSION SUMMARY STRIP
+  // 1. OVERVIEW / COMMAND CENTER SITUATION & ACTIVITY FEED STRIP
   if (activeTab === 'overview') {
+    const highRiskZonesCount = criticalCells.length + highCells.length;
+    const atRiskRoadsCount = roads.filter(
+      (r) =>
+        r.currentState === RoadStatus.AT_RISK ||
+        r.currentState === RoadStatus.LIKELY_FLOODED ||
+        r.currentState === RoadStatus.CLOSED
+    ).length;
+    const availableSheltersCount = shelters.filter(
+      (s) => s.reachable && s.remainingCapacity > 0
+    ).length;
+    const overallRiskLabel =
+      criticalCells.length >= 4
+        ? 'CRITICAL'
+        : highRiskZonesCount >= 4
+        ? 'HIGH'
+        : highRiskZonesCount >= 1
+        ? 'MODERATE'
+        : 'LOW';
+    const trendLabel =
+      params.rainfallIntensityMmHr >= 38 || params.timelineHourOffset >= 0
+        ? 'WORSENING'
+        : 'STABLE';
+
     return (
       <div className="bg-[#080C14] border-b border-slate-800/90 px-4 py-3 space-y-3">
         {/* Operational Chain Bar */}
@@ -171,80 +204,120 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           </div>
         </div>
 
-        {/* 4 Key Operational Metrics Row */}
-        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800/90">
-            <div className="font-mono text-[11px] text-slate-400">
-              CRITICAL / HIGH FLOOD CELLS
+        {/* COMMAND CENTER: CURRENT SITUATION + CHRONOLOGICAL ACTIVITY FEED */}
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 font-mono">
+          {/* Left 7 Cols: CURRENT SITUATION (Risk, Trend, High-risk zones, At-risk roads, Closed roads, Shelters available, Data confidence) */}
+          <div className="xl:col-span-7 p-2.5 bg-[#0C121E] border border-slate-800/90 space-y-2">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-cyan-300 font-bold">
+                CURRENT SITUATION
+              </span>
+              <button
+                type="button"
+                onClick={() => onNavigateTab('alerts')}
+                className="text-amber-300 hover:underline text-[10.5px]"
+              >
+                {alerts.filter((a) => a.lifecycleState === 'PENDING REVIEW').length} Alerts Pending Human Confirmation →
+              </button>
             </div>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-mono font-semibold text-rose-400 tabular-nums">
-                {criticalCells.length}
-              </span>
-              <span className="text-xs font-mono text-amber-400 tabular-nums">
-                + {highCells.length} High
-              </span>
-              <span className="text-[11px] font-mono text-slate-500">
-                / 64 cells
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
-              Peak: Krishnapura ({cells.find((c) => c.id === 'CELL-R2C2')?.predictedDepthCm ?? 68} cm)
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2 text-xs tabular-nums">
+              <div className="p-2 bg-[#070B12] border border-slate-800">
+                <div className="text-[10px] text-slate-400">Risk:</div>
+                <div className="text-sm font-bold text-rose-400 mt-0.5">
+                  {overallRiskLabel}
+                </div>
+              </div>
+
+              <div className="p-2 bg-[#070B12] border border-slate-800">
+                <div className="text-[10px] text-slate-400">Trend:</div>
+                <div className="text-sm font-bold text-amber-400 mt-0.5">
+                  {trendLabel}
+                </div>
+              </div>
+
+              <div
+                onClick={() => onNavigateTab('risk-map')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
+              >
+                <div className="text-[10px] text-slate-400">High-risk zones:</div>
+                <div className="text-sm font-bold text-white mt-0.5">
+                  {highRiskZonesCount}
+                </div>
+              </div>
+
+              <div
+                onClick={() => onNavigateTab('roads-routing')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-amber-500/50 cursor-pointer"
+              >
+                <div className="text-[10px] text-slate-400">At-risk roads:</div>
+                <div className="text-sm font-bold text-amber-300 mt-0.5">
+                  {atRiskRoadsCount}
+                </div>
+              </div>
+
+              <div
+                onClick={() => onNavigateTab('roads-routing')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
+              >
+                <div className="text-[10px] text-slate-400">Closed roads:</div>
+                <div className="text-sm font-bold text-rose-400 mt-0.5">
+                  {closedRoads.length}
+                </div>
+              </div>
+
+              <div
+                onClick={() => onNavigateTab('evacuation')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-emerald-500/50 cursor-pointer"
+              >
+                <div className="text-[10px] text-slate-400">Shelters available:</div>
+                <div className="text-sm font-bold text-emerald-300 mt-0.5">
+                  {availableSheltersCount}
+                </div>
+              </div>
+
+              <div
+                onClick={() => onNavigateTab('data-health')}
+                className="p-2 bg-[#070B12] border border-slate-800 hover:border-cyan-500/50 cursor-pointer"
+              >
+                <div className="text-[10px] text-slate-400">Data confidence:</div>
+                <div className="text-sm font-bold text-cyan-300 mt-0.5">
+                  {Math.round(dataHealthReport.confidence * 100)}%
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800/90">
-            <div className="font-mono text-[11px] text-slate-400">
-              ROAD STATE MACHINE (24 CORRIDORS)
-            </div>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-mono font-semibold text-rose-400 tabular-nums">
-                {closedRoads.length} Closed
+          {/* Right 5 Cols: Chronological Operational Activity Feed */}
+          <div className="xl:col-span-5 p-2.5 bg-[#0C121E] border border-slate-800/90 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-emerald-400 font-bold">
+                ● ACTIVITY FEED (CHRONOLOGICAL)
               </span>
-              <span className="text-xs font-mono text-amber-400 tabular-nums">
-                + {likelyFloodedRoads.length} Likely Flooded
+              <span className="text-slate-400 text-[10px]">
+                Prediction · Sensor · Road · Route · Alert
               </span>
             </div>
-            <div className="text-[11px] font-mono text-cyan-300 mt-0.5 truncate">
-              {routes.filter((r) => r.avoidedHazardCount > 0).length} Active Routes Recalculated
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800/90">
-            <div className="font-mono text-[11px] text-slate-400">
-              POPULATION IN PRIORITY EVAC
-            </div>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-mono font-semibold text-white tabular-nums">
-                {evacuationPlans.reduce((s, p) => s + p.populationAtRisk, 0).toLocaleString()}
-              </span>
-              <span className="text-xs font-mono text-emerald-400">
-                4 Shelters Active
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
-              Total Shelter Reserve:{' '}
-              {shelters
-                .reduce((s, sh) => s + (sh.totalCapacity - sh.currentOccupancy), 0)
-                .toLocaleString()}{' '}
-              berths
-            </div>
-          </div>
-
-          <div className="p-2.5 bg-[#0C121E] border border-slate-800/90">
-            <div className="font-mono text-[11px] text-slate-400">
-              SENSOR & MODEL CONFIDENCE
-            </div>
-            <div className="flex items-baseline gap-2 mt-0.5">
-              <span className="text-2xl font-mono font-semibold text-cyan-300 tabular-nums">
-                {Math.round(dataHealthReport.confidence * 100)}%
-              </span>
-              <span className="text-xs font-mono text-slate-400 tabular-nums">
-                {sensors.filter((s) => s.freshnessState === 'FRESH').length} Fresh / {sensors.length} Total
-              </span>
-            </div>
-            <div className="text-[11px] font-mono text-slate-400 mt-0.5 truncate">
-              {sensors.filter((s) => s.freshnessState !== 'FRESH').length} Stale/Suspect/Missing
+            <div className="max-h-20 overflow-y-auto space-y-1 text-[11px] tabular-nums pr-1">
+              {activityFeed.slice(0, 5).map((entry) => (
+                <div
+                  key={entry.id}
+                  onClick={() =>
+                    entry.relatedTarget && onSelectMapTarget(entry.relatedTarget)
+                  }
+                  className="px-2 py-0.5 bg-[#070B12] border-l-2 border-cyan-400 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-900"
+                >
+                  <div className="truncate">
+                    <span className="text-slate-400 mr-1.5">{entry.timestamp}</span>
+                    {entry.eventTypeLabel && (
+                      <span className="text-cyan-300 font-bold mr-1.5">
+                        [{entry.eventTypeLabel}]
+                      </span>
+                    )}
+                    <span className="text-slate-200">{entry.message}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -1543,76 +1616,21 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     );
   }
 
-  // 6. ALERTS WORKSPACE
+  // 6. ALERTS & COMMAND CENTER WORKSPACE (7-State Lifecycle + Alert Composer)
   if (activeTab === 'alerts') {
     return (
-      <div className="p-4 bg-[#080C14] border-b border-slate-800/90 space-y-3 max-h-[54vh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="font-mono text-[11px] text-amber-400">
-              CAP-ALIGNED MUNICIPAL EARLY WARNING & ACTION BULLETINS
-            </div>
-            <h2 className="text-base font-semibold text-white">
-              Active Control-Room Advisories (Filtered & Prioritized for {activeRole})
-            </h2>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {alerts.map((alt) => {
-            const isRoleTargeted = alt.targetAudience.includes(activeRole);
-            return (
-              <div
-                key={alt.id}
-                className={`p-3.5 border ${
-                  alt.acknowledged
-                    ? 'bg-[#0A0E17] border-slate-800/70 opacity-80'
-                    : 'bg-[#0D1320] border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <SeverityIndicator severity={alt.severity} showPatternNote />
-                  <div className="flex items-center gap-2 font-mono text-[11px]">
-                    {isRoleTargeted && (
-                      <span className="text-cyan-300">★ Priority for {activeRole}</span>
-                    )}
-                    <span className="text-slate-400">Step: {alt.stepLink}</span>
-                  </div>
-                </div>
-                <h3 className="text-sm font-semibold text-white mt-1.5">
-                  {alt.title}
-                </h3>
-                <div className="font-mono text-[11px] text-slate-400 mt-1">
-                  Affected: <span className="text-slate-200">{alt.affectedLocalities.join(' · ')}</span>
-                </div>
-                <p className="text-xs text-slate-300 mt-1.5 leading-relaxed">
-                  <strong className="text-slate-200">Trigger Evidence:</strong> {alt.triggerEvidence}
-                </p>
-                <p className="text-xs text-cyan-200 mt-1.5 leading-relaxed bg-cyan-950/20 border border-cyan-500/30 p-2">
-                  <strong>Recommended Action:</strong> {alt.recommendedAction}
-                </p>
-
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => onAcknowledgeAlert(alt.id)}
-                    className={`px-3 py-1 font-mono text-xs border transition-colors whitespace-nowrap ${
-                      alt.acknowledged
-                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                        : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-white'
-                    }`}
-                  >
-                    {alt.acknowledged ? '✓ Acknowledged in EOC Log' : 'Acknowledge Bulletin'}
-                  </button>
-                  <span className="font-mono text-[11px] text-slate-400 tabular-nums">
-                    Conf {Math.round(alt.confidence * 100)}% · Exp {alt.expiry.slice(11, 16)}Z
-                  </span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <AlertCommandWorkspace
+        alerts={alerts}
+        cells={cells}
+        roads={roads}
+        shelters={shelters}
+        params={params}
+        activeRole={activeRole}
+        activityFeed={activityFeed}
+        onTransitionAlertLifecycle={onTransitionAlertLifecycle}
+        onComposeAlert={onComposeAlert}
+        onSelectMapTarget={onSelectMapTarget}
+      />
     );
   }
 

@@ -120,10 +120,19 @@ export interface InjectedObservationState {
   crowdReportsByRoad: Record<string, { count: number; lastReportText: string; timestamp: string }>;
 }
 
+export type ActivityEventTypeLabel =
+  | 'Prediction changed'
+  | 'Sensor updated'
+  | 'Road changed'
+  | 'Route recalculated'
+  | 'Alert drafted'
+  | 'Operator approved alert';
+
 export interface ActivityFeedEntry {
   id: string;
   timestamp: string; // e.g. '18:42:10'
-  category: 'SENSOR' | 'PREDICTION' | 'ROAD_STATE' | 'ROUTING' | 'CROWD' | 'SYSTEM';
+  category: 'SENSOR' | 'PREDICTION' | 'ROAD_STATE' | 'ROUTING' | 'CROWD' | 'ALERT' | 'SYSTEM';
+  eventTypeLabel?: ActivityEventTypeLabel;
   message: string;
   detail?: string;
   severity: 'INFO' | 'WARNING' | 'CRITICAL' | 'SUCCESS';
@@ -469,14 +478,55 @@ export interface EvacuationPlanItem extends DataProvenance {
   expiry: string;
 }
 
+export type AlertLifecycleState =
+  | 'DRAFT'
+  | 'PENDING REVIEW'
+  | 'PUBLISHED'
+  | 'UPDATED'
+  | 'EXPIRED'
+  | 'CANCELLED'
+  | 'REJECTED';
+
+export type AlertAudience =
+  | 'Control room'
+  | 'Emergency responders'
+  | 'Traffic authority'
+  | 'Citizen';
+
+export interface AlertComposerDraftInput {
+  audiences: AlertAudience[];
+  location: string;
+  cellId?: string;
+  severity: FloodSeverity;
+  warningLevel: WarningLevel;
+  isEvacuationAlert: boolean;
+  recommendedActionBullets: string[];
+  expiryMinutes: number;
+  confidence: number; // 0.0 to 1.0
+  source: string;
+  initialLifecycleState: 'DRAFT' | 'PENDING REVIEW' | 'PUBLISHED';
+}
+
 export interface AlertItem extends DataProvenance {
   id: string;
   title: string;
+  actionHeadline: string; // e.g. "ORANGE — HIGH FLOOD RISK"
+  probabilityStatement: string; // e.g. "Ward sector W-24 (Krishnapura) has a 78% estimated flood probability under the current forecast."
   severity: FloodSeverity;
+  warningLevel: WarningLevel;
+  lifecycleState: AlertLifecycleState;
+  requiresHumanConfirmation: boolean; // true for ORANGE/RED and evacuation alerts
+  isEvacuationAlert: boolean;
+  humanConfirmedBy?: string;
+  humanConfirmedAt?: string;
+  audiences: AlertAudience[];
   targetAudience: UserRole[];
+  location: string;
   affectedLocalities: string[];
+  source: string;
   triggerEvidence: string;
   recommendedAction: string;
+  recommendedActionBullets: string[];
   expiry: string;
   acknowledged: boolean;
   stepLink: OperationalStep;

@@ -5,7 +5,11 @@ import { IndoreFloodMap, MapInspectionTarget } from './components/IndoreFloodMap
 import { ModuleWorkspace } from './components/ModuleWorkspaces';
 import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/SeverityVisuals';
 import { PILOT_SCOPE_ID } from './data/indorePilotData';
-import { generateOperationalAlerts } from './modules/alerts';
+import {
+  AlertLifecycleOverride,
+  createComposedAlert,
+  generateOperationalAlerts,
+} from './modules/alerts';
 import {
   DEFAULT_INJECTED_OBSERVATIONS,
   ingestSensorTelemetry,
@@ -28,6 +32,9 @@ import {
 import { generateValidationReport } from './modules/validation';
 import {
   ActivityFeedEntry,
+  AlertComposerDraftInput,
+  AlertItem,
+  AlertLifecycleState,
   DisasterStage,
   FloodSeverity,
   InjectedObservationState,
@@ -82,11 +89,42 @@ export default function App() {
 
   const [activityFeed, setActivityFeed] = useState<ActivityFeedEntry[]>([
     {
+      id: 'ACT-INIT-0',
+      timestamp: '18:42:18',
+      category: 'ALERT',
+      eventTypeLabel: 'Operator approved alert',
+      message: 'Published RED — CORRIDOR CLOSURE & REROUTE (Human Confirmed)',
+      detail: 'Confirmed by Traffic Control Desk #2 · Barricades active at Krishnapura Bridge & Chandrabhaga Causeway.',
+      severity: 'SUCCESS',
+      relatedTarget: { type: 'ROAD', id: 'RD-05' },
+    },
+    {
+      id: 'ACT-INIT-0B',
+      timestamp: '18:42:16',
+      category: 'ALERT',
+      eventTypeLabel: 'Alert drafted',
+      message: 'Drafted “ORANGE — HIGH FLOOD RISK” for Ward sector W-24 (78% prob)',
+      detail: 'Queued in PENDING REVIEW awaiting human confirmation before public dispatch.',
+      severity: 'WARNING',
+      relatedTarget: { type: 'CELL', id: 'CELL-R2C3' },
+    },
+    {
       id: 'ACT-INIT-1',
       timestamp: '18:42:15',
+      category: 'ROUTING',
+      eventTypeLabel: 'Route recalculated',
+      message: 'Emergency Ambulance Route recalculated via Regal–Palasia elevated corridor',
+      detail: 'Diverted around CLOSED segment RD-05 (MG Road Krishnapura Bridge).',
+      severity: 'CRITICAL',
+      relatedTarget: { type: 'ROAD', id: 'RD-05' },
+    },
+    {
+      id: 'ACT-INIT-1B',
+      timestamp: '18:42:12',
       category: 'ROAD_STATE',
-      message: 'RD-05 (MG Road Krishnapura Bridge) state: CLOSED',
-      detail: 'Road graph updated · Emergency ambulance routes recalculated via elevated Regal–Palasia corridor.',
+      eventTypeLabel: 'Road changed',
+      message: 'RD-05 (MG Road Krishnapura Bridge) transitioned AT_RISK → CLOSED',
+      detail: 'Multiple agreeing observations (stage gauge SEN-WL-01 + 88% cell flood probability).',
       severity: 'CRITICAL',
       relatedTarget: { type: 'ROAD', id: 'RD-05' },
     },
@@ -94,28 +132,21 @@ export default function App() {
       id: 'ACT-INIT-2',
       timestamp: '18:41:56',
       category: 'SENSOR',
-      message: 'SEN-WL-04 (Water Sensor C · Sarwate): SUSPECT',
-      detail: 'Abnormal ultrasonic spike (+0.48m jump) flagged by telemetry quality filter.',
+      eventTypeLabel: 'Sensor updated',
+      message: 'SEN-WL-01 (Krishnapura Bridge Gauge): 3.45m stage (FRESH)',
+      detail: 'Ultrasonic river stage rose +0.18m over 15 min; telemetry verified.',
       severity: 'WARNING',
-      relatedTarget: { type: 'SENSOR', id: 'SEN-WL-04' },
-    },
-    {
-      id: 'ACT-INIT-3',
-      timestamp: '18:34:15',
-      category: 'SENSOR',
-      message: 'SEN-WL-05 (Water Sensor B · Harsiddhi): STALE',
-      detail: 'Last seen 8 minutes ago · Local confidence adjusted in cell CELL-R5C2.',
-      severity: 'WARNING',
-      relatedTarget: { type: 'SENSOR', id: 'SEN-WL-05' },
+      relatedTarget: { type: 'SENSOR', id: 'SEN-WL-01' },
     },
     {
       id: 'ACT-INIT-4',
       timestamp: '18:41:33',
-      category: 'SENSOR',
-      message: 'SEN-RG-01 (Rain Gauge A · Rajwada): FRESH',
-      detail: 'Last seen 42 seconds ago · 42.0 mm/h verified.',
-      severity: 'INFO',
-      relatedTarget: { type: 'SENSOR', id: 'SEN-RG-01' },
+      category: 'PREDICTION',
+      eventTypeLabel: 'Prediction changed',
+      message: 'Ward sector W-24 (Krishnapura / MTH) flood probability updated to 78% (HIGH)',
+      detail: 'Driven by 42 mm/h rainfall intensity, low elevation (545.2m), and high runoff accumulation.',
+      severity: 'WARNING',
+      relatedTarget: { type: 'CELL', id: 'CELL-R2C2' },
     },
   ]);
 
@@ -162,6 +193,10 @@ export default function App() {
     'Auto-refreshed at 18:42:15 when RD-05 (MG Road Krishnapura Bridge) transitioned to CLOSED.'
   );
   const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Set<string>>(new Set());
+  const [alertLifecycleOverrides, setAlertLifecycleOverrides] = useState<
+    Record<string, AlertLifecycleOverride>
+  >({});
+  const [customAlerts, setCustomAlerts] = useState<AlertItem[]>([]);
   const [isPlayingTimeline, setIsPlayingTimeline] = useState<boolean>(false);
 
   // Modular Service Pipeline Execution (every injected observation enters this same pipeline)
@@ -262,6 +297,7 @@ export default function App() {
           id: `ACT-RD-CLOSE-${r.id}-${Date.now()}`,
           timestamp: nowStr,
           category: 'ROUTING',
+          eventTypeLabel: 'Route recalculated',
           message: `ROAD CLOSED: ${r.id} (${r.name}) removed from road graph`,
           detail:
             affectedRoutes.length > 0
@@ -279,6 +315,7 @@ export default function App() {
           id: `ACT-RD-OPEN-${r.id}-${Date.now()}`,
           timestamp: nowStr,
           category: 'ROAD_STATE',
+          eventTypeLabel: 'Road changed',
           message: `ROAD REOPENED / DE-ESCALATED: ${r.id} (${r.name}) → ${r.currentState}`,
           detail: `Restored to active road graph · Route recommendations updated.`,
           severity: 'SUCCESS',
@@ -823,9 +860,191 @@ export default function App() {
   };
 
   const alerts = useMemo(
-    () => generateOperationalAlerts(cells, roads, sensors, params, acknowledgedAlerts),
-    [cells, roads, sensors, params, acknowledgedAlerts]
+    () =>
+      generateOperationalAlerts(
+        cells,
+        roads,
+        sensors,
+        params,
+        acknowledgedAlerts,
+        alertLifecycleOverrides,
+        customAlerts
+      ),
+    [
+      cells,
+      roads,
+      sensors,
+      params,
+      acknowledgedAlerts,
+      alertLifecycleOverrides,
+      customAlerts,
+    ]
   );
+
+  const handleTransitionAlertLifecycle = (
+    alertId: string,
+    nextState: AlertLifecycleState
+  ) => {
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    const targetAlert = alerts.find((a) => a.id === alertId);
+
+    setAlertLifecycleOverrides((prev) => ({
+      ...prev,
+      [alertId]: {
+        lifecycleState: nextState,
+        humanConfirmedBy:
+          nextState === 'PUBLISHED' || nextState === 'UPDATED'
+            ? `${activeRole} (Human Confirmed)`
+            : prev[alertId]?.humanConfirmedBy,
+        humanConfirmedAt:
+          nextState === 'PUBLISHED' || nextState === 'UPDATED'
+            ? `${nowStr}Z`
+            : prev[alertId]?.humanConfirmedAt,
+      },
+    }));
+
+    const eventTypeLabel =
+      nextState === 'PUBLISHED' || nextState === 'UPDATED'
+        ? ('Operator approved alert' as const)
+        : ('Alert drafted' as const);
+
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-ALT-LC-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ALERT' as const,
+          eventTypeLabel,
+          message: `Alert ${alertId} transitioned to ${nextState}: ${
+            targetAlert?.actionHeadline ?? ''
+          }`,
+          detail:
+            nextState === 'PUBLISHED'
+              ? `Human confirmation recorded by ${activeRole} · Dispatched to ${
+                  targetAlert?.audiences.join(', ') ?? 'Control room'
+                }.`
+              : `Lifecycle updated to ${nextState} for ${
+                  targetAlert?.location ?? 'Indore Pilot'
+                }.`,
+          severity:
+            nextState === 'PUBLISHED'
+              ? ('SUCCESS' as const)
+              : nextState === 'REJECTED' || nextState === 'CANCELLED'
+              ? ('WARNING' as const)
+              : ('INFO' as const),
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
+  const handleComposeAlert = (draft: AlertComposerDraftInput) => {
+    const newAlert = createComposedAlert(draft, cells, params);
+    const nowStr = new Date().toTimeString().slice(0, 8);
+
+    setCustomAlerts((prev) => [newAlert, ...prev]);
+
+    const eventTypeLabel =
+      newAlert.lifecycleState === 'PUBLISHED'
+        ? ('Operator approved alert' as const)
+        : ('Alert drafted' as const);
+
+    setActivityFeed((prev) =>
+      [
+        {
+          id: `ACT-ALT-COMP-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ALERT' as const,
+          eventTypeLabel,
+          message: `${newAlert.lifecycleState}: “${newAlert.actionHeadline}” for ${newAlert.location}`,
+          detail: `${newAlert.probabilityStatement} Audience: ${newAlert.audiences.join(
+            ', '
+          )}.`,
+          severity:
+            newAlert.lifecycleState === 'PUBLISHED'
+              ? ('SUCCESS' as const)
+              : ('WARNING' as const),
+          relatedTarget: draft.cellId
+            ? { type: 'CELL' as const, id: draft.cellId }
+            : undefined,
+        },
+        ...prev,
+      ].slice(0, 25)
+    );
+  };
+
+  // Gentle deterministic live heartbeat so the chronological Activity Feed feels alive
+  const livePulseIdxRef = useRef<number>(0);
+  useEffect(() => {
+    const pulseTimer = window.setInterval(() => {
+      const nowStr = new Date().toTimeString().slice(0, 8);
+      const step = livePulseIdxRef.current % 4;
+      livePulseIdxRef.current += 1;
+
+      const topCell = cells[18]; // Krishnapura
+      const gaugeA = sensors.find((s) => s.id === 'SEN-RG-01') ?? sensors[0];
+      const bridgeRoad = roads.find((r) => r.id === 'RD-05') ?? roads[0];
+
+      const pulseTemplates: ActivityFeedEntry[] = [
+        {
+          id: `ACT-PULSE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'SENSOR',
+          eventTypeLabel: 'Sensor updated',
+          message: `${gaugeA.id} (${gaugeA.name}) heartbeat: ${gaugeA.currentValue} ${gaugeA.unit} (${gaugeA.freshnessState})`,
+          detail: `Packet integrity ${gaugeA.packetSuccessRatePct}% · Data confidence ${Math.round(
+            gaugeA.confidence * 100
+          )}%.`,
+          severity: 'INFO',
+          relatedTarget: { type: 'SENSOR', id: gaugeA.id },
+        },
+        {
+          id: `ACT-PULSE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'PREDICTION',
+          eventTypeLabel: 'Prediction changed',
+          message: `Hydro-terrain sweep: ${topCell.localityName} (${topCell.wardCode}) at ${Math.round(
+            topCell.floodProbability * 100
+          )}% flood probability`,
+          detail: `Expected onset ~${topCell.leadTimeMin} min · Warning level ${topCell.warningLevel}.`,
+          severity: 'WARNING',
+          relatedTarget: { type: 'CELL', id: topCell.id },
+        },
+        {
+          id: `ACT-PULSE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROAD_STATE',
+          eventTypeLabel: 'Road changed',
+          message: `Road state verification: ${bridgeRoad.id} (${bridgeRoad.name}) remains ${bridgeRoad.currentState}`,
+          detail: `Estimated water depth ~${bridgeRoad.estimatedWaterDepthCm}cm (${bridgeRoad.agreeingObservationsCount} agreeing sources).`,
+          severity:
+            bridgeRoad.currentState === RoadStatus.CLOSED ? 'CRITICAL' : 'INFO',
+          relatedTarget: { type: 'ROAD', id: bridgeRoad.id },
+        },
+        {
+          id: `ACT-PULSE-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ROUTING',
+          eventTypeLabel: 'Route recalculated',
+          message: `Route subscription verified: ${
+            activeRoute?.originName ?? 'Rajwada'
+          } → ${activeRoute?.destinationName ?? 'MY Hospital'} (${
+            activeRoute?.recommendedEtaMin ?? 14
+          } min)`,
+          detail: `Recommended under current data · Risk score ${
+            activeRoute?.riskScore ?? 28
+          }/100.`,
+          severity: 'INFO',
+        },
+      ];
+
+      setActivityFeed((prev) =>
+        [pulseTemplates[step], ...prev].slice(0, 25)
+      );
+    }, 11000);
+
+    return () => window.clearInterval(pulseTimer);
+  }, [cells, sensors, roads, activeRoute]);
 
   const validationReport = useMemo(
     () => generateValidationReport(cells, params),
@@ -1198,6 +1417,8 @@ export default function App() {
                 onTriggerNoFeasibleRouteDemo={handleTriggerNoFeasibleRouteDemo}
                 alerts={alerts}
                 onAcknowledgeAlert={handleAcknowledgeAlert}
+                onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
+                onComposeAlert={handleComposeAlert}
                 validationReport={validationReport}
                 dataHealthReport={dataHealthReport}
                 activeRole={activeRole}

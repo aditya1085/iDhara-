@@ -175,8 +175,15 @@ export const LiveFeedSimulator: React.FC<LiveFeedSimulatorProps> = ({
               }`}
             >
               <div className="min-w-0">
-                <span className="text-slate-400 mr-2">{entry.timestamp}</span>
-                <span className="font-medium">{entry.message}</span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-slate-400">{entry.timestamp}</span>
+                  {entry.eventTypeLabel && (
+                    <span className="px-1.5 py-0.2 bg-slate-900 border border-slate-700 text-cyan-300 font-bold text-[10px]">
+                      {entry.eventTypeLabel}
+                    </span>
+                  )}
+                  <span className="font-medium">{entry.message}</span>
+                </div>
                 {entry.detail && (
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     {entry.detail}

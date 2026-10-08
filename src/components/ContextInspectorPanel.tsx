@@ -467,64 +467,145 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
             })}
           </section>
 
-          {/* SECTION B: SITUATION OVERVIEW */}
-          <section aria-label="Situation Overview" className="space-y-2.5 pt-2 border-t border-slate-800">
+          {/* SECTION B: COMMAND CENTER — CURRENT SITUATION */}
+          <section aria-label="Current Situation" className="space-y-2.5 pt-2 border-t border-slate-800">
             <div className="flex items-center justify-between">
-              <h2 className="text-xs font-mono font-semibold text-slate-300 uppercase">
-                Situation Overview (Indore 5×5 km Pilot)
+              <h2 className="text-xs font-mono font-bold text-cyan-300 uppercase">
+                CURRENT SITUATION
               </h2>
-              <span className="font-mono text-[10.5px] text-slate-400">
-                {params.mode}
-              </span>
+              <button
+                type="button"
+                onClick={() => onNavigateTab('alerts')}
+                className="font-mono text-[10.5px] text-amber-300 hover:underline"
+              >
+                {alerts.filter((a) => a.lifecycleState === 'PENDING REVIEW').length} Pending Review →
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div
-                onClick={() =>
-                  highRiskZones[0] &&
-                  handleSelectAndInspect({ type: 'CELL', id: highRiskZones[0].id })
-                }
-                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-rose-500/50 cursor-pointer"
-              >
-                <div className="font-mono text-[10px] text-slate-400">HIGH-RISK ZONES</div>
-                <div className="text-lg font-mono font-semibold text-rose-400 tabular-nums">
-                  {highRiskZones.length} <span className="text-[11px] text-slate-400">/ 64</span>
-                </div>
-              </div>
+            {(() => {
+              const critCount = cells.filter(
+                (c) => c.severity === FloodSeverity.CRITICAL
+              ).length;
+              const overallRisk =
+                critCount >= 4
+                  ? 'CRITICAL'
+                  : highRiskZones.length >= 4
+                  ? 'HIGH'
+                  : highRiskZones.length >= 1
+                  ? 'MODERATE'
+                  : 'LOW';
+              const trend =
+                params.rainfallIntensityMmHr >= 38 ||
+                params.timelineHourOffset >= 0
+                  ? 'WORSENING'
+                  : 'STABLE';
+              const closedRoadsCount = roads.filter(
+                (r) => r.currentState === RoadStatus.CLOSED
+              ).length;
+              const availableSheltersCount = shelters.filter(
+                (s) => s.reachable && s.remainingCapacity > 0
+              ).length;
+              const avgConfPct = Math.round(
+                (cells.reduce((s, c) => s + c.confidence, 0) /
+                  Math.max(1, cells.length)) *
+                  100
+              );
 
-              <div
-                onClick={() =>
-                  atRiskRoads[0] &&
-                  handleSelectAndInspect({ type: 'ROAD', id: atRiskRoads[0].id })
-                }
-                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-amber-500/50 cursor-pointer"
-              >
-                <div className="font-mono text-[10px] text-slate-400">AT-RISK ROADS</div>
-                <div className="text-lg font-mono font-semibold text-amber-400 tabular-nums">
-                  {atRiskRoads.length} <span className="text-[11px] text-slate-400">/ 24</span>
-                </div>
-              </div>
+              return (
+                <div className="p-3 bg-[#0D1320] border border-slate-800 space-y-2 font-mono text-xs tabular-nums">
+                  <div className="grid grid-cols-2 gap-2 pb-2 border-b border-slate-800/80">
+                    <div>
+                      <div className="text-[10px] text-slate-400">Risk:</div>
+                      <div
+                        className={`text-base font-bold ${
+                          overallRisk === 'CRITICAL' || overallRisk === 'HIGH'
+                            ? 'text-rose-400'
+                            : 'text-amber-300'
+                        }`}
+                      >
+                        {overallRisk}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-400">Trend:</div>
+                      <div
+                        className={`text-base font-bold ${
+                          trend === 'WORSENING'
+                            ? 'text-amber-400'
+                            : 'text-emerald-400'
+                        }`}
+                      >
+                        {trend === 'WORSENING' ? '▲ WORSENING' : '● STABLE'}
+                      </div>
+                    </div>
+                  </div>
 
-              <div
-                onClick={() => onNavigateTab('evacuation')}
-                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-cyan-500/50 cursor-pointer"
-              >
-                <div className="font-mono text-[10px] text-slate-400">PEOPLE / ASSETS</div>
-                <div className="text-sm font-mono font-semibold text-white tabular-nums mt-0.5">
-                  {affectedPopulation.toLocaleString()} pop · {affectedAssets.length} assets
-                </div>
-              </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11.5px]">
+                    <div
+                      onClick={() =>
+                        highRiskZones[0] &&
+                        handleSelectAndInspect({
+                          type: 'CELL',
+                          id: highRiskZones[0].id,
+                        })
+                      }
+                      className="flex items-center justify-between cursor-pointer hover:text-white"
+                    >
+                      <span className="text-slate-400">High-risk zones:</span>
+                      <span className="font-bold text-rose-400">
+                        {highRiskZones.length}
+                      </span>
+                    </div>
 
-              <div
-                onClick={() => onNavigateTab('evacuation')}
-                className="p-2 bg-[#0D1320] border border-slate-800 hover:border-emerald-500/50 cursor-pointer"
-              >
-                <div className="font-mono text-[10px] text-slate-400">SHELTERS & ALERTS</div>
-                <div className="text-sm font-mono font-semibold text-emerald-300 tabular-nums mt-0.5">
-                  {shelters.length} Open · {alerts.filter((a) => !a.acknowledged).length} Alerts
+                    <div
+                      onClick={() =>
+                        atRiskRoads[0] &&
+                        handleSelectAndInspect({
+                          type: 'ROAD',
+                          id: atRiskRoads[0].id,
+                        })
+                      }
+                      className="flex items-center justify-between cursor-pointer hover:text-white"
+                    >
+                      <span className="text-slate-400">At-risk roads:</span>
+                      <span className="font-bold text-amber-300">
+                        {atRiskRoads.length}
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => onNavigateTab('roads-routing')}
+                      className="flex items-center justify-between cursor-pointer hover:text-white"
+                    >
+                      <span className="text-slate-400">Closed roads:</span>
+                      <span className="font-bold text-rose-400">
+                        {closedRoadsCount}
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => onNavigateTab('evacuation')}
+                      className="flex items-center justify-between cursor-pointer hover:text-white"
+                    >
+                      <span className="text-slate-400">Shelters available:</span>
+                      <span className="font-bold text-emerald-300">
+                        {availableSheltersCount}
+                      </span>
+                    </div>
+
+                    <div
+                      onClick={() => onNavigateTab('data-health')}
+                      className="col-span-2 flex items-center justify-between pt-1.5 border-t border-slate-800/80 cursor-pointer hover:text-white"
+                    >
+                      <span className="text-slate-400">Data confidence:</span>
+                      <span className="font-bold text-cyan-300">
+                        {avgConfPct}%
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              );
+            })()}
           </section>
 
           {/* SECTION C: LIVE FEED SIMULATOR & REAL-TIME ACTIVITY FEED */}
