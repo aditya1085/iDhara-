@@ -1,0 +1,1049 @@
+import React, { useMemo, useState } from 'react';
+import {
+  CRITICAL_ASSETS,
+  DRAINAGE_PROXIES,
+  INTERSECTION_NODES,
+  PILOT_BOUNDS,
+  PILOT_SCOPE_ID,
+} from '../data/indorePilotData';
+import {
+  FloodRiskCell,
+  FloodSeverity,
+  ProductMode,
+  RoadSegmentState,
+  RoadStatus,
+  RouteRecommendation,
+  SensorNode,
+  Shelter,
+} from '../types/idhara';
+import { MODE_META, ROAD_STATUS_META, SEVERITY_META } from './SeverityVisuals';
+
+export type MapInspectionTarget =
+  | { type: 'CELL'; id: string }
+  | { type: 'ROAD'; id: string }
+  | { type: 'SENSOR'; id: string }
+  | { type: 'SHELTER'; id: string }
+  | { type: 'ASSET'; id: string };
+
+interface IndoreFloodMapProps {
+  mode: ProductMode;
+  cells: FloodRiskCell[];
+  roads: RoadSegmentState[];
+  sensors: SensorNode[];
+  shelters: Shelter[];
+  activeRoute: RouteRecommendation | null;
+  selectedTarget: MapInspectionTarget;
+  onSelectTarget: (target: MapInspectionTarget) => void;
+}
+
+export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
+  mode,
+  cells,
+  roads,
+  sensors,
+  shelters,
+  activeRoute,
+  selectedTarget,
+  onSelectTarget,
+}) => {
+  const [layers, setLayers] = useState({
+    pilotBoundary: true,
+    heatmapGlow: true,
+    gridCells: true,
+    patterns: true,
+    drainage: true,
+    roads: true,
+    activeRoute: true,
+    rainGauges: true,
+    waterLevelSensors: true,
+    assetsAndShelters: true,
+    cellLabels: true,
+  });
+
+  const [metricOverlay, setMetricOverlay] = useState<'SEVERITY' | 'ELEVATION' | 'DRAINAGE'>('SEVERITY');
+  const [zoom, setZoom] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [hoveredInfo, setHoveredInfo] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
+
+  const nodeMap = new Map(INTERSECTION_NODES.map((n) => [n.id, n]));
+  const modeMeta = MODE_META[mode];
+
+  const toggleLayer = (key: keyof typeof layers) => {
+    setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const cellSize = 1000 / 8; // 125 units per cell in 1000x1000 SVG space
+
+  // Search index across cells, roads, sensors, shelters, and critical assets
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+
+    const matches: Array<{
+      label: string;
+      subLabel: string;
+      target: MapInspectionTarget;
+      x: number;
+      y: number;
+    }> = [];
+
+    cells.forEach((c) => {
+      if (
+        c.localityName.toLowerCase().includes(q) ||
+        c.wardCode.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q)
+      ) {
+        matches.push({
+          label: `${c.localityName} (${c.wardCode})`,
+          subLabel: `Flood Cell · ${Math.round(c.floodProbability * 100)}% risk · ${c.predictedDepthCm}cm`,
+          target: { type: 'CELL', id: c.id },
+          x: (c.col + 0.5) * cellSize,
+          y: (c.row + 0.5) * cellSize,
+        });
+      }
+    });
+
+    roads.forEach((r) => {
+      if (r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q)) {
+        const f = nodeMap.get(r.fromNodeId);
+        const t = nodeMap.get(r.toNodeId);
+        matches.push({
+          label: r.name,
+          subLabel: `Road (${r.id}) · ${r.currentState}`,
+          target: { type: 'ROAD', id: r.id },
+          x: f && t ? (f.x + t.x) / 2 : 500,
+          y: f && t ? (f.y + t.y) / 2 : 500,
+        });
+      }
+    });
+
+    sensors.forEach((s) => {
+      if (s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) {
+        matches.push({
+          label: `${s.name} (${s.id})`,
+          subLabel: `Sensor · ${s.currentValue} ${s.unit}`,
+          target: { type: 'SENSOR', id: s.id },
+          x: s.x,
+          y: s.y,
+        });
+      }
+    });
+
+    shelters.forEach((sh) => {
+      if (sh.name.toLowerCase().includes(q) || sh.id.toLowerCase().includes(q)) {
+        matches.push({
+          label: sh.name,
+          subLabel: `Shelter (${sh.id}) · ${sh.currentOccupancy}/${sh.totalCapacity}`,
+          target: { type: 'SHELTER', id: sh.id },
+          x: sh.x,
+          y: sh.y,
+        });
+      }
+    });
+
+    CRITICAL_ASSETS.forEach((a) => {
+      if (a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q)) {
+        matches.push({
+          label: a.name,
+          subLabel: `Critical Asset (${a.category})`,
+          target: { type: 'ASSET', id: a.id },
+          x: a.x,
+          y: a.y,
+        });
+      }
+    });
+
+    return matches.slice(0, 8);
+  }, [searchQuery, cells, roads, sensors, shelters, nodeMap, cellSize]);
+
+  const handleResetPilotOverview = () => {
+    setZoom(1);
+    setPanOffset({ x: 0, y: 0 });
+    setSearchQuery('');
+  };
+
+  const handleFocusTarget = (target: MapInspectionTarget, x: number, y: number) => {
+    onSelectTarget(target);
+    setZoom(1.35);
+    const offsetX = Math.max(-180, Math.min(180, (500 - x) * 0.35));
+    const offsetY = Math.max(-180, Math.min(180, (500 - y) * 0.35));
+    setPanOffset({ x: Math.round(offsetX), y: Math.round(offsetY) });
+    setSearchQuery('');
+  };
+
+  return (
+    <div className="relative flex flex-col w-full h-full bg-[#05080E] border border-slate-800/90 select-none overflow-hidden">
+      {/* Top Map Toolbar: Search, Pilot Overview Button, Surface Lens, Layer & Zoom Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-[#0A0F1A] border-b border-slate-800/90 z-20">
+        {/* Left: Map Search Input + Pilot Overview Reset */}
+        <div className="flex items-center gap-2 relative">
+          <div className="relative w-56 sm:w-64">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search ward, road, gauge, hospital…"
+              aria-label="Search Indore pilot map entities"
+              className="w-full bg-[#060911] border border-slate-700/90 focus:border-cyan-400 text-xs font-mono text-slate-100 px-2.5 py-1.5 outline-none placeholder:text-slate-500"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1.5 text-xs font-mono text-slate-400 hover:text-white"
+              >
+                ×
+              </button>
+            )}
+
+            {/* Instant Search Results Dropdown */}
+            {searchResults.length > 0 && (
+              <div className="absolute left-0 top-full mt-1 w-80 bg-[#0B101B] border border-slate-700 shadow-xl z-30 divide-y divide-slate-800/80 max-h-64 overflow-y-auto">
+                {searchResults.map((item, idx) => (
+                  <button
+                    key={`${item.target.type}-${item.target.id}-${idx}`}
+                    type="button"
+                    onClick={() => handleFocusTarget(item.target, item.x, item.y)}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-800/90 transition-colors block"
+                  >
+                    <div className="text-xs font-medium text-white truncate">
+                      {item.label}
+                    </div>
+                    <div className="text-[10.5px] font-mono text-cyan-300 truncate">
+                      {item.subLabel}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Current Location / Pilot Overview Button */}
+          <button
+            type="button"
+            onClick={handleResetPilotOverview}
+            className="px-2.5 py-1.5 bg-[#0D1422] hover:bg-slate-800 border border-slate-700 text-[11px] font-mono text-cyan-300 whitespace-nowrap transition-colors"
+            title="Reset viewport to full 5km × 5km Indore Pilot Overview"
+          >
+            ⌖ Indore Pilot Overview
+          </button>
+        </div>
+
+        {/* Center: Heatmap / DEM / Drainage Surface Selector */}
+        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800">
+          <button
+            type="button"
+            onClick={() => setMetricOverlay('SEVERITY')}
+            className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+              metricOverlay === 'SEVERITY'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Flood Heatmap & Depth
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetricOverlay('ELEVATION')}
+            className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+              metricOverlay === 'ELEVATION'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Terrain DEM (m MSL)
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetricOverlay('DRAINAGE')}
+            className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap ${
+              metricOverlay === 'DRAINAGE'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-semibold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Drainage Proxy
+          </button>
+        </div>
+
+        {/* Right: Layer Control Dropdown & Zoom Controls */}
+        <div className="flex items-center gap-2 font-mono text-xs relative">
+          <button
+            type="button"
+            onClick={() => setShowLayerMenu((v) => !v)}
+            className={`px-2.5 py-1 border text-[11px] whitespace-nowrap transition-colors ${
+              showLayerMenu
+                ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
+                : 'bg-[#0D1422] border-slate-700 text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            ≡ Layers ({Object.values(layers).filter(Boolean).length}/11)
+          </button>
+
+          {showLayerMenu && (
+            <div className="absolute right-24 top-full mt-1 w-64 bg-[#0B101B] border border-slate-700 shadow-2xl p-2.5 z-30 space-y-1.5 text-[11px]">
+              <div className="flex items-center justify-between text-slate-400 pb-1 border-b border-slate-800">
+                <span>GEOSPATIAL LAYERS</span>
+                <button
+                  type="button"
+                  onClick={() => setShowLayerMenu(false)}
+                  className="text-slate-400 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+              {[
+                { key: 'pilotBoundary', label: '5×5 km Pilot Boundary' },
+                { key: 'heatmapGlow', label: 'Continuous Flood Heatmap' },
+                { key: 'gridCells', label: '64-Cell Risk Matrix' },
+                { key: 'patterns', label: 'Non-Hue Hatch Patterns' },
+                { key: 'drainage', label: 'Kahn & Saraswati Rivers' },
+                { key: 'roads', label: 'Road Network & Barricades' },
+                { key: 'activeRoute', label: 'Recommended Reroute Path' },
+                { key: 'rainGauges', label: 'Rain Gauges (4 AWS)' },
+                { key: 'waterLevelSensors', label: 'Water-Level Sensors (6)' },
+                { key: 'assetsAndShelters', label: 'Hospitals & Relief Shelters' },
+                { key: 'cellLabels', label: 'Ward & Depth Readouts' },
+              ].map((item) => {
+                const active = layers[item.key as keyof typeof layers];
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => toggleLayer(item.key as keyof typeof layers)}
+                    className="w-full flex items-center justify-between px-2 py-1 hover:bg-slate-800/80 text-left"
+                  >
+                    <span className={active ? 'text-slate-100' : 'text-slate-500'}>
+                      {active ? '■' : '□'} {item.label}
+                    </span>
+                    <span className={active ? 'text-cyan-400' : 'text-slate-600'}>
+                      {active ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex items-center bg-[#060911] border border-slate-700">
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
+              className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap"
+              title="Zoom Out"
+            >
+              −
+            </button>
+            <span className="px-2 text-[11px] text-slate-300 tabular-nums border-x border-slate-800">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
+              className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap"
+              title="Zoom In"
+            >
+              +
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Interactive SVG Geospatial Viewport */}
+      <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070C]">
+        {/* Top-Left Prototype / Mode Watermark Stamp on Map */}
+        <div className="absolute top-3 left-3 z-10 pointer-events-none flex items-center gap-2 bg-[#090D16]/90 border border-slate-800 px-2.5 py-1 font-mono text-[11px]">
+          <span className={`font-semibold ${modeMeta.accentText}`}>
+            {modeMeta.indicatorSymbol} {mode} DATA LAYER
+          </span>
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-400">
+            {PILOT_BOUNDS.cityName}
+          </span>
+        </div>
+
+        <svg
+          viewBox="-25 -25 1050 1050"
+          className="w-full h-full max-h-full cursor-crosshair transition-transform duration-150"
+          style={{
+            transform: `scale(${zoom}) translate(${panOffset.x}px, ${panOffset.y}px)`,
+            transformOrigin: 'center center',
+          }}
+          role="img"
+          aria-label="Indore 5 by 5 kilometer interactive flood prediction heatmap and disaster twin map"
+        >
+          <defs>
+            {/* Non-hue-only SVG patterns for Flood Severity */}
+            <pattern
+              id="pattern-critical-crosshatch"
+              width="16"
+              height="16"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M 0,16 L 16,0 M 0,0 L 16,16"
+                stroke="rgba(248, 113, 113, 0.45)"
+                strokeWidth="1.5"
+              />
+            </pattern>
+
+            <pattern
+              id="pattern-high-diagonal"
+              width="14"
+              height="14"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M -2,14 L 14,-2 M 6,16 L 16,6"
+                stroke="rgba(251, 146, 60, 0.45)"
+                strokeWidth="1.5"
+              />
+            </pattern>
+
+            <pattern
+              id="pattern-moderate-dots"
+              width="12"
+              height="12"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="4" cy="4" r="1.5" fill="rgba(250, 204, 21, 0.48)" />
+              <circle cx="10" cy="10" r="1.5" fill="rgba(250, 204, 21, 0.48)" />
+            </pattern>
+
+            {/* Radial Gradients for Continuous Flood-Risk Heatmap */}
+            <radialGradient id="heatmap-critical" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#EF4444" stopOpacity="0.52" />
+              <stop offset="55%" stopColor="#F97316" stopOpacity="0.24" />
+              <stop offset="100%" stopColor="#F97316" stopOpacity="0" />
+            </radialGradient>
+
+            <radialGradient id="heatmap-high" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#F97316" stopOpacity="0.40" />
+              <stop offset="60%" stopColor="#EAB308" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#EAB308" stopOpacity="0" />
+            </radialGradient>
+
+            <filter id="route-glow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="0" stdDeviation="3.5" floodColor="#22D3EE" floodOpacity="0.85" />
+            </filter>
+          </defs>
+
+          {/* 0. Continuous Flood-Risk Heatmap Glow Underlay */}
+          {layers.heatmapGlow &&
+            metricOverlay === 'SEVERITY' &&
+            cells
+              .filter(
+                (c) =>
+                  c.severity === FloodSeverity.CRITICAL ||
+                  c.severity === FloodSeverity.HIGH
+              )
+              .map((c) => {
+                const cx = (c.col + 0.5) * cellSize;
+                const cy = (c.row + 0.5) * cellSize;
+                const radius = c.severity === FloodSeverity.CRITICAL ? 155 : 120;
+                return (
+                  <circle
+                    key={`heat-${c.id}`}
+                    cx={cx}
+                    cy={cy}
+                    r={radius}
+                    fill={
+                      c.severity === FloodSeverity.CRITICAL
+                        ? 'url(#heatmap-critical)'
+                        : 'url(#heatmap-high)'
+                    }
+                    pointerEvents="none"
+                  />
+                );
+              })}
+
+          {/* 1. 64-Cell Hydrological Risk Grid */}
+          {layers.gridCells &&
+            cells.map((cell) => {
+              const x = cell.col * cellSize;
+              const y = cell.row * cellSize;
+              const isSelected =
+                selectedTarget.type === 'CELL' && selectedTarget.id === cell.id;
+              const sevMeta = SEVERITY_META[cell.severity];
+
+              let fillStyle = sevMeta.svgFill;
+              if (metricOverlay === 'ELEVATION') {
+                const normElev = (cell.elevationM - 544) / 18;
+                fillStyle =
+                  normElev < 0.25
+                    ? 'rgba(14, 165, 233, 0.36)'
+                    : normElev < 0.55
+                    ? 'rgba(56, 189, 248, 0.18)'
+                    : 'rgba(148, 163, 184, 0.08)';
+              } else if (metricOverlay === 'DRAINAGE') {
+                fillStyle =
+                  cell.drainageProxyScore < 0.35
+                    ? 'rgba(239, 68, 68, 0.34)'
+                    : cell.drainageProxyScore < 0.6
+                    ? 'rgba(234, 179, 8, 0.22)'
+                    : 'rgba(16, 185, 129, 0.14)';
+              }
+
+              return (
+                <g
+                  key={cell.id}
+                  onClick={() => onSelectTarget({ type: 'CELL', id: cell.id })}
+                  onMouseEnter={() =>
+                    setHoveredInfo(
+                      `${cell.id} · ${cell.localityName} (${cell.wardCode}) · ${sevMeta.glyph} ${sevMeta.label} · Prob ${Math.round(
+                        cell.floodProbability * 100
+                      )}% · Depth ${cell.predictedDepthCm}cm · Elev ${cell.elevationM}m`
+                    )
+                  }
+                  onMouseLeave={() => setHoveredInfo(null)}
+                  className="cursor-pointer"
+                >
+                  <rect
+                    x={x}
+                    y={y}
+                    width={cellSize}
+                    height={cellSize}
+                    fill={fillStyle}
+                    stroke={isSelected ? '#38BDF8' : 'rgba(51, 65, 85, 0.5)'}
+                    strokeWidth={isSelected ? 3 : 1}
+                  />
+
+                  {layers.patterns &&
+                    metricOverlay === 'SEVERITY' &&
+                    sevMeta.patternId !== 'none' && (
+                      <rect
+                        x={x}
+                        y={y}
+                        width={cellSize}
+                        height={cellSize}
+                        fill={sevMeta.patternId}
+                        pointerEvents="none"
+                      />
+                    )}
+
+                  {isSelected && (
+                    <rect
+                      x={x + 3}
+                      y={y + 3}
+                      width={cellSize - 6}
+                      height={cellSize - 6}
+                      fill="none"
+                      stroke="#E0F2FE"
+                      strokeWidth="1.5"
+                      strokeDasharray="4 2"
+                      pointerEvents="none"
+                    />
+                  )}
+
+                  {layers.cellLabels && (
+                    <g pointerEvents="none">
+                      <text
+                        x={x + 7}
+                        y={y + 16}
+                        fill={
+                          cell.severity === FloodSeverity.CRITICAL
+                            ? '#FCA5A5'
+                            : cell.severity === FloodSeverity.HIGH
+                            ? '#FDBA74'
+                            : cell.severity === FloodSeverity.MODERATE
+                            ? '#FDE047'
+                            : '#6EE7B7'
+                        }
+                        fontSize="11"
+                        fontFamily="IBM Plex Mono, monospace"
+                        fontWeight="600"
+                      >
+                        {sevMeta.glyph} {sevMeta.shortCode} · {cell.wardCode}
+                      </text>
+
+                      <text
+                        x={x + 7}
+                        y={y + 31}
+                        fill="#E2E8F0"
+                        fontSize="10"
+                        fontFamily="Plus Jakarta Sans, sans-serif"
+                        fontWeight="500"
+                      >
+                        {cell.localityName.length > 18
+                          ? cell.localityName.slice(0, 17) + '…'
+                          : cell.localityName}
+                      </text>
+
+                      <text
+                        x={x + 7}
+                        y={y + cellSize - 9}
+                        fill="#94A3B8"
+                        fontSize="10.5"
+                        fontFamily="IBM Plex Mono, monospace"
+                      >
+                        {metricOverlay === 'SEVERITY' &&
+                          `${Math.round(cell.floodProbability * 100)}% · ${cell.predictedDepthCm}cm`}
+                        {metricOverlay === 'ELEVATION' &&
+                          `${cell.elevationM}m MSL · ${cell.slopeDeg}°`}
+                        {metricOverlay === 'DRAINAGE' &&
+                          `Drain ${cell.drainageProxyScore.toFixed(2)} · Imp ${Math.round(
+                            cell.imperviousness * 100
+                          )}%`}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+
+          {/* 2. Explicit 5km × 5km Pilot Boundary Frame */}
+          {layers.pilotBoundary && (
+            <g pointerEvents="none">
+              <rect
+                x="0"
+                y="0"
+                width="1000"
+                height="1000"
+                fill="none"
+                stroke="#38BDF8"
+                strokeWidth="2.5"
+                strokeDasharray="12 6"
+              />
+              <text
+                x="6"
+                y="-8"
+                fill="#38BDF8"
+                fontSize="11"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="600"
+              >
+                INDORE PILOT BOUNDARY ({PILOT_SCOPE_ID} · 5.0 km × 5.0 km · NW {PILOT_BOUNDS.maxLat}°N, {PILOT_BOUNDS.minLng}°E)
+              </text>
+              <text
+                x="994"
+                y="1016"
+                textAnchor="end"
+                fill="#38BDF8"
+                fontSize="11"
+                fontFamily="IBM Plex Mono, monospace"
+                fontWeight="600"
+              >
+                SE BOUNDARY ({PILOT_BOUNDS.minLat}°N, {PILOT_BOUNDS.maxLng}°E)
+              </text>
+            </g>
+          )}
+
+          {/* 3. Kahn River, Saraswati River & Primary Nallah Drainage Proxies */}
+          {layers.drainage &&
+            DRAINAGE_PROXIES.map((d) => {
+              const pathPoints = d.points.map((p) => `${p.x},${p.y}`).join(' ');
+              const isRiver = d.type === 'RIVER_CHANNEL';
+              const isCulvert = d.type === 'STORM_CULVERT_CHOKEPOINT';
+              return (
+                <g key={d.id} pointerEvents="none">
+                  <polyline
+                    points={pathPoints}
+                    fill="none"
+                    stroke={
+                      isCulvert
+                        ? 'rgba(244, 63, 94, 0.35)'
+                        : 'rgba(14, 165, 233, 0.30)'
+                    }
+                    strokeWidth={isRiver ? 18 : 10}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <polyline
+                    points={pathPoints}
+                    fill="none"
+                    stroke={isCulvert ? '#FB7185' : isRiver ? '#0284C7' : '#38BDF8'}
+                    strokeWidth={isRiver ? 6 : 3.5}
+                    strokeDasharray={isCulvert ? '6 4' : isRiver ? 'none' : '10 4'}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </g>
+              );
+            })}
+
+          {/* 4. Road Network & Flood State Segments */}
+          {layers.roads &&
+            roads.map((road) => {
+              const fromNode = nodeMap.get(road.fromNodeId);
+              const toNode = nodeMap.get(road.toNodeId);
+              if (!fromNode || !toNode) return null;
+
+              const isSelected =
+                selectedTarget.type === 'ROAD' && selectedTarget.id === road.id;
+              const statusMeta = ROAD_STATUS_META[road.currentState];
+              const midX = (fromNode.x + toNode.x) / 2;
+              const midY = (fromNode.y + toNode.y) / 2;
+
+              return (
+                <g
+                  key={road.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectTarget({ type: 'ROAD', id: road.id });
+                  }}
+                  onMouseEnter={() =>
+                    setHoveredInfo(
+                      `${road.id}: ${road.name} · ${statusMeta.glyph} ${statusMeta.label} · Flood Prob ${Math.round(
+                        road.floodProbability * 100
+                      )}% (~${road.estimatedWaterDepthCm}cm)`
+                    )
+                  }
+                  onMouseLeave={() => setHoveredInfo(null)}
+                  className="cursor-pointer"
+                >
+                  <line
+                    x1={fromNode.x}
+                    y1={fromNode.y}
+                    x2={toNode.x}
+                    y2={toNode.y}
+                    stroke="transparent"
+                    strokeWidth="16"
+                  />
+                  <line
+                    x1={fromNode.x}
+                    y1={fromNode.y}
+                    x2={toNode.x}
+                    y2={toNode.y}
+                    stroke="#090D16"
+                    strokeWidth={isSelected ? 9 : 6.5}
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1={fromNode.x}
+                    y1={fromNode.y}
+                    x2={toNode.x}
+                    y2={toNode.y}
+                    stroke={isSelected ? '#38BDF8' : statusMeta.strokeColor}
+                    strokeWidth={isSelected ? 5.5 : 3.5}
+                    strokeDasharray={statusMeta.dashArray}
+                    strokeLinecap="round"
+                  />
+
+                  {(road.currentState === RoadStatus.CLOSED_INUNDATED ||
+                    road.currentState === RoadStatus.RESTRICTED_SHALLOW) && (
+                    <g transform={`translate(${midX}, ${midY})`}>
+                      <rect
+                        x="-12"
+                        y="-9"
+                        width="24"
+                        height="18"
+                        rx="3"
+                        fill="#090D16"
+                        stroke={statusMeta.strokeColor}
+                        strokeWidth="1.5"
+                      />
+                      <text
+                        x="0"
+                        y="4"
+                        textAnchor="middle"
+                        fill={statusMeta.strokeColor}
+                        fontSize="10"
+                        fontFamily="IBM Plex Mono, monospace"
+                        fontWeight="700"
+                      >
+                        {statusMeta.glyph}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
+
+          {/* 5. Active Recommended Route Overlay ("Recommended under current data") */}
+          {layers.activeRoute && activeRoute && (
+            <g pointerEvents="none">
+              {activeRoute.avoidedHazardCount > 0 &&
+                activeRoute.baselineShortestRoadIds.map((rId) => {
+                  const r = roads.find((item) => item.id === rId);
+                  if (!r) return null;
+                  const f = nodeMap.get(r.fromNodeId);
+                  const t = nodeMap.get(r.toNodeId);
+                  if (!f || !t) return null;
+                  return (
+                    <line
+                      key={`base-${rId}`}
+                      x1={f.x}
+                      y1={f.y}
+                      x2={t.x}
+                      y2={t.y}
+                      stroke="#F43F5E"
+                      strokeWidth="3"
+                      strokeDasharray="3 6"
+                      opacity="0.7"
+                    />
+                  );
+                })}
+
+              {activeRoute.recommendedRoadIds.map((rId) => {
+                const r = roads.find((item) => item.id === rId);
+                if (!r) return null;
+                const f = nodeMap.get(r.fromNodeId);
+                const t = nodeMap.get(r.toNodeId);
+                if (!f || !t) return null;
+                return (
+                  <line
+                    key={`rec-${rId}`}
+                    x1={f.x}
+                    y1={f.y}
+                    x2={t.x}
+                    y2={t.y}
+                    stroke="#22D3EE"
+                    strokeWidth="5.5"
+                    strokeLinecap="round"
+                    filter="url(#route-glow)"
+                  />
+                );
+              })}
+            </g>
+          )}
+
+          {/* 6. Intersection Nodes */}
+          {layers.roads &&
+            INTERSECTION_NODES.map((node) => {
+              const isOrigin = activeRoute?.originNodeId === node.id;
+              const isDest = activeRoute?.destinationNodeId === node.id;
+              return (
+                <g key={node.id} pointerEvents="none">
+                  <circle
+                    cx={node.x}
+                    cy={node.y}
+                    r={isOrigin || isDest ? 7 : 4}
+                    fill={isOrigin ? '#22D3EE' : isDest ? '#10B981' : '#1E293B'}
+                    stroke="#E2E8F0"
+                    strokeWidth={isOrigin || isDest ? 2 : 1.2}
+                  />
+                  <text
+                    x={node.x + 8}
+                    y={node.y + 4}
+                    fill="#E2E8F0"
+                    fontSize="10"
+                    fontFamily="Plus Jakarta Sans, sans-serif"
+                    fontWeight="600"
+                    stroke="#05080E"
+                    strokeWidth="2.5"
+                    paintOrder="stroke"
+                  >
+                    {node.name}
+                  </text>
+                </g>
+              );
+            })}
+
+          {/* 7. Critical Assets & Evacuation Shelters */}
+          {layers.assetsAndShelters && (
+            <>
+              {CRITICAL_ASSETS.map((asset) => {
+                const isSelected =
+                  selectedTarget.type === 'ASSET' && selectedTarget.id === asset.id;
+                const glyph =
+                  asset.category === 'HOSPITAL'
+                    ? '✚'
+                    : asset.category === 'FIRE_EMERGENCY'
+                    ? '★'
+                    : asset.category === 'POWER_SUBSTATION'
+                    ? '⚡'
+                    : '■';
+                return (
+                  <g
+                    key={asset.id}
+                    transform={`translate(${asset.x}, ${asset.y})`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectTarget({ type: 'ASSET', id: asset.id });
+                    }}
+                    onMouseEnter={() =>
+                      setHoveredInfo(
+                        `CRITICAL ASSET: ${asset.name} (${asset.category}) · Elev ${asset.elevationM}m MSL`
+                      )
+                    }
+                    onMouseLeave={() => setHoveredInfo(null)}
+                    className="cursor-pointer"
+                  >
+                    <rect
+                      x="-11"
+                      y="-11"
+                      width="22"
+                      height="22"
+                      rx="4"
+                      fill="#0F172A"
+                      stroke={isSelected ? '#38BDF8' : '#F8FAFC'}
+                      strokeWidth={isSelected ? 2.5 : 1.5}
+                    />
+                    <text
+                      x="0"
+                      y="4"
+                      textAnchor="middle"
+                      fill={asset.category === 'HOSPITAL' ? '#38BDF8' : '#FBBF24'}
+                      fontSize="11"
+                      fontFamily="IBM Plex Mono, monospace"
+                      fontWeight="700"
+                    >
+                      {glyph}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {shelters.map((sh) => {
+                const isSelected =
+                  selectedTarget.type === 'SHELTER' && selectedTarget.id === sh.id;
+                return (
+                  <g
+                    key={sh.id}
+                    transform={`translate(${sh.x}, ${sh.y})`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectTarget({ type: 'SHELTER', id: sh.id });
+                    }}
+                    onMouseEnter={() =>
+                      setHoveredInfo(
+                        `SHELTER ${sh.id}: ${sh.name} · Occupancy ${sh.currentOccupancy}/${sh.totalCapacity} · Elev ${sh.elevationM}m MSL`
+                      )
+                    }
+                    onMouseLeave={() => setHoveredInfo(null)}
+                    className="cursor-pointer"
+                  >
+                    <polygon
+                      points="0,-13 12,10 -12,10"
+                      fill="#064E3B"
+                      stroke={isSelected ? '#38BDF8' : '#34D399'}
+                      strokeWidth={isSelected ? 2.5 : 1.8}
+                    />
+                    <text
+                      x="0"
+                      y="7"
+                      textAnchor="middle"
+                      fill="#A7F3D0"
+                      fontSize="9.5"
+                      fontFamily="IBM Plex Mono, monospace"
+                      fontWeight="700"
+                    >
+                      S
+                    </text>
+                  </g>
+                );
+              })}
+            </>
+          )}
+
+          {/* 8. Rain Gauges & Water-Level Sensors (Separately Toggleable) */}
+          {sensors
+            .filter(
+              (s) =>
+                (s.type === 'RAIN_GAUGE' && layers.rainGauges) ||
+                (s.type !== 'RAIN_GAUGE' && layers.waterLevelSensors)
+            )
+            .map((s) => {
+              const isSelected =
+                selectedTarget.type === 'SENSOR' && selectedTarget.id === s.id;
+              const ringColor =
+                s.status === 'STALE'
+                  ? '#94A3B8'
+                  : s.status === 'CRITICAL_THRESHOLD'
+                  ? '#EF4444'
+                  : s.status === 'DRIFTING'
+                  ? '#F59E0B'
+                  : '#22D3EE';
+
+              return (
+                <g
+                  key={s.id}
+                  transform={`translate(${s.x}, ${s.y - 18})`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectTarget({ type: 'SENSOR', id: s.id });
+                  }}
+                  onMouseEnter={() =>
+                    setHoveredInfo(
+                      `SENSOR ${s.id}: ${s.name} · ${s.currentValue} ${s.unit} · Status: ${s.status}`
+                    )
+                  }
+                  onMouseLeave={() => setHoveredInfo(null)}
+                  className="cursor-pointer"
+                >
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r={isSelected ? 10.5 : 8.5}
+                    fill="#090D16"
+                    stroke={ringColor}
+                    strokeWidth={isSelected ? 2.5 : 1.8}
+                  />
+                  <text
+                    x="0"
+                    y="3.5"
+                    textAnchor="middle"
+                    fill={ringColor}
+                    fontSize="8.5"
+                    fontFamily="IBM Plex Mono, monospace"
+                    fontWeight="700"
+                  >
+                    {s.type === 'RAIN_GAUGE' ? 'RG' : 'WL'}
+                  </text>
+                </g>
+              );
+            })}
+        </svg>
+
+        {/* Floating Bottom-Left Multi-Modal Legend */}
+        <div className="absolute bottom-3 left-3 bg-[#090D16]/95 border border-slate-800 px-3 py-2 text-[11px] font-mono text-slate-300 pointer-events-none max-w-lg">
+          <div className="text-[10px] text-slate-400 mb-1 font-semibold">
+            FLOOD SEVERITY & ASSET LEGEND (COLOR + GLYPH + HATCH PATTERN)
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-1.5">
+            <div className="flex items-center gap-1 text-rose-400">
+              <span>✖ CRITICAL</span>
+              <span className="text-[10px] text-slate-400">(Hatch)</span>
+            </div>
+            <div className="flex items-center gap-1 text-amber-400">
+              <span>▲ HIGH</span>
+              <span className="text-[10px] text-slate-400">(Stripe)</span>
+            </div>
+            <div className="flex items-center gap-1 text-yellow-300">
+              <span>◆ MODERATE</span>
+              <span className="text-[10px] text-slate-400">(Dots)</span>
+            </div>
+            <div className="flex items-center gap-1 text-emerald-400">
+              <span>● LOW</span>
+              <span className="text-[10px] text-slate-400">(Clear)</span>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-slate-400 border-t border-slate-800/80 pt-1">
+            <span className="text-sky-400">┅┅ 5×5km Pilot Boundary</span>
+            <span className="text-cyan-300">━ Recommended Route</span>
+            <span className="text-rose-400">┅✖┅ Closed Road</span>
+            <span className="text-cyan-300">◉WL / ◉RG Sensors</span>
+            <span className="text-emerald-300">▲S Shelter</span>
+            <span className="text-sky-300">✚ Hospital</span>
+          </div>
+        </div>
+
+        {/* Floating Bottom-Right Scale Bar */}
+        <div className="absolute bottom-3 right-3 bg-[#090D16]/95 border border-slate-800 px-3 py-1.5 text-[11px] font-mono text-slate-300 pointer-events-none flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400">SCALE:</span>
+            <div className="w-20 h-1.5 border-x border-b border-slate-300 relative">
+              <span className="absolute -top-3.5 left-0 text-[9px]">0</span>
+              <span className="absolute -top-3.5 right-0 text-[9px]">1.0 km</span>
+            </div>
+          </div>
+          <div className="text-[10px] text-slate-400 tabular-nums">
+            Indore Pilot · {PILOT_BOUNDS.minLat}°N–{PILOT_BOUNDS.maxLat}°N
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Live Crosshair Probe Bar */}
+      <div className="px-3 py-1.5 bg-[#090D16] border-t border-slate-800/90 font-mono text-[11px] text-slate-300 flex items-center justify-between gap-2 truncate">
+        <span className="truncate">
+          {hoveredInfo
+            ? `PROBE: ${hoveredInfo}`
+            : 'EOC MAP READY: Click any cell, road, sensor, hospital, or shelter to inspect or use Map Search above.'}
+        </span>
+        <span className="text-slate-500 shrink-0">Indore 5×5 km Grid</span>
+      </div>
+    </div>
+  );
+};
