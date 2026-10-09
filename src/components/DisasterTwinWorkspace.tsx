@@ -1037,10 +1037,10 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
               <span>SELECTED CELL BEFORE vs. AFTER: {baseInspectedCell.localityName}</span>
               <span>{baseInspectedCell.id}</span>
             </div>
-            <div className="grid grid-cols-2 gap-3 pt-1 font-mono tabular-nums">
-              <div className="p-2 bg-[#080C14] border border-slate-800">
-                <div className="text-[10px] text-slate-400">CURRENT SITUATION</div>
-                <div className="text-base font-bold text-white mt-0.5">
+            <div className="grid grid-cols-2 gap-3 pt-1 font-mono tabular-nums min-w-0">
+              <div className="p-2.5 bg-[#080C14] border border-slate-800 min-w-0 overflow-hidden">
+                <div className="text-[10px] font-sans font-medium text-slate-400 tracking-wider truncate">CURRENT SITUATION</div>
+                <div className="text-sm sm:text-base font-bold text-white mt-0.5 truncate">
                   Prob: {Math.round(baseInspectedCell.floodProbability * 100)}% ·{' '}
                   {baseInspectedCell.predictedDepthCm}cm
                 </div>
@@ -1048,9 +1048,9 @@ export const DisasterTwinWorkspace: React.FC<DisasterTwinWorkspaceProps> = ({
                   <SeverityIndicator severity={baseInspectedCell.severity} />
                 </div>
               </div>
-              <div className="p-2 bg-[#080C14] border border-amber-500/40">
-                <div className="text-[10px] text-amber-300">SCENARIO PROJECTION</div>
-                <div className="text-base font-bold text-amber-200 mt-0.5">
+              <div className="p-2.5 bg-[#080C14] border border-amber-500/40 min-w-0 overflow-hidden">
+                <div className="text-[10px] font-sans font-medium text-amber-300 tracking-wider truncate">SCENARIO PROJECTION</div>
+                <div className="text-sm sm:text-base font-bold text-amber-200 mt-0.5 truncate">
                   Prob: {Math.round(scenInspectedCell.floodProbability * 100)}% ·{' '}
                   {scenInspectedCell.predictedDepthCm}cm
                 </div>

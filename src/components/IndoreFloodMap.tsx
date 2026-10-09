@@ -821,7 +821,9 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           <div
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs max-h-[min(80vh,520px)] overflow-y-auto overscroll-contain interactive-panel"
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-[calc(100vw-1.5rem)] sm:max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs max-h-[min(80vh,520px)] overflow-y-auto overscroll-contain interactive-panel"
           >
             <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
@@ -830,7 +832,10 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setIsRouteErrorDismissed(true)}
+                onClick={() => {
+                  setIsRouteErrorDismissed(true);
+                  onClearRoute?.();
+                }}
                 className="text-slate-400 hover:text-white text-xs px-1 cursor-pointer"
                 title="Dismiss route error notification"
               >
@@ -905,11 +910,16 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         )}
 
         {/* Active Feasible Route Banner */}
-        {routeStatus === 'FEASIBLE' && activeRoute && activeRoute.feasible && (
+        {!routeUpdateNotification &&
+          routeStatus === 'FEASIBLE' &&
+          activeRoute &&
+          activeRoute.feasible && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#091524]/95 border border-cyan-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs interactive-panel"
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-[calc(100vw-1.5rem)] sm:max-w-sm bg-[#091524]/95 border border-cyan-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs interactive-panel"
           >
             <div className="flex items-center justify-between gap-2 border-b border-cyan-900/60 pb-1 mb-1">
               <span className="text-cyan-300 font-bold flex items-center gap-1">
@@ -940,11 +950,16 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         )}
 
         {/* Active Evacuation Route Banner */}
-        {evacuationStatus === 'FEASIBLE' && evacuationRoute && evacuationRoute.assigned && (
+        {!routeUpdateNotification &&
+          evacuationStatus === 'FEASIBLE' &&
+          evacuationRoute &&
+          evacuationRoute.assigned && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#061814]/95 border border-emerald-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs interactive-panel"
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-[calc(100vw-1.5rem)] sm:max-w-sm bg-[#061814]/95 border border-emerald-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs interactive-panel"
           >
             <div className="flex items-center justify-between gap-2 border-b border-emerald-900/60 pb-1 mb-1">
               <span className="text-emerald-300 font-bold flex items-center gap-1">
@@ -975,11 +990,15 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         )}
 
         {/* Infeasible Evacuation Plan Banner */}
-        {evacuationStatus === 'NO_FEASIBLE_EVACUATION' && evacuationRoute && (
+        {!routeUpdateNotification &&
+          evacuationStatus === 'NO_FEASIBLE_EVACUATION' &&
+          evacuationRoute && (
           <div
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs interactive-panel"
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-[calc(100vw-1.5rem)] sm:max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs max-h-[min(80vh,520px)] overflow-y-auto overscroll-contain interactive-panel"
           >
             <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
@@ -998,9 +1017,14 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             <div className="text-slate-200 text-xs font-sans mb-1.5 leading-snug">
               Evacuation unavailable for {evacuationRoute.sourceLocality}
             </div>
-            <div className="text-[10.5px] text-rose-200/90 bg-rose-950/60 p-1.5 border border-rose-900/60">
+            <div className="text-[10.5px] text-rose-200/90 bg-rose-950/60 p-1.5 border border-rose-900/60 mb-1.5">
               <strong className="text-rose-300">Reason:</strong> {evacuationRoute.failureReason ?? 'All shelter corridors disconnected'}.
             </div>
+            {evacuationRoute.failureDetail && (
+              <div className="text-[10px] text-slate-300 font-sans leading-relaxed">
+                {evacuationRoute.failureDetail}
+              </div>
+            )}
           </div>
         )}
 

@@ -577,8 +577,8 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       }
                       className="flex items-center justify-between cursor-pointer hover:text-white min-w-0 gap-1"
                     >
-                      <span className="text-slate-400 truncate">High-risk zones:</span>
-                      <span className="font-bold text-rose-400 shrink-0">
+                      <span className="text-slate-400 font-sans truncate">High-risk zones:</span>
+                      <span className="font-bold text-rose-400 shrink-0 tabular-nums">
                         {highRiskZones.length}
                       </span>
                     </div>
@@ -593,8 +593,8 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       }
                       className="flex items-center justify-between cursor-pointer hover:text-white min-w-0 gap-1"
                     >
-                      <span className="text-slate-400 truncate">At-risk roads:</span>
-                      <span className="font-bold text-amber-300 shrink-0">
+                      <span className="text-slate-400 font-sans truncate">At-risk roads:</span>
+                      <span className="font-bold text-amber-300 shrink-0 tabular-nums">
                         {atRiskRoads.length}
                       </span>
                     </div>
@@ -603,8 +603,8 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       onClick={() => onNavigateTab('roads-routing')}
                       className="flex items-center justify-between cursor-pointer hover:text-white min-w-0 gap-1"
                     >
-                      <span className="text-slate-400 truncate">Closed roads:</span>
-                      <span className="font-bold text-rose-400 shrink-0">
+                      <span className="text-slate-400 font-sans truncate">Closed roads:</span>
+                      <span className="font-bold text-rose-400 shrink-0 tabular-nums">
                         {closedRoadsCount}
                       </span>
                     </div>
@@ -613,8 +613,8 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       onClick={() => onNavigateTab('evacuation')}
                       className="flex items-center justify-between cursor-pointer hover:text-white min-w-0 gap-1"
                     >
-                      <span className="text-slate-400 truncate">Shelters available:</span>
-                      <span className="font-bold text-emerald-300 shrink-0">
+                      <span className="text-slate-400 font-sans truncate">Shelters open:</span>
+                      <span className="font-bold text-emerald-300 shrink-0 tabular-nums">
                         {availableSheltersCount}
                       </span>
                     </div>
@@ -623,8 +623,8 @@ export const ContextInspectorPanel: React.FC<ContextInspectorPanelProps> = ({
                       onClick={() => onNavigateTab('data-health')}
                       className="col-span-2 flex items-center justify-between pt-1.5 border-t border-slate-800/80 cursor-pointer hover:text-white min-w-0 gap-1"
                     >
-                      <span className="text-slate-400 truncate">Data confidence:</span>
-                      <span className="font-bold text-cyan-300 shrink-0">
+                      <span className="text-slate-400 font-sans truncate">Data confidence:</span>
+                      <span className="font-bold text-cyan-300 shrink-0 tabular-nums">
                         {avgConfPct}%
                       </span>
                     </div>

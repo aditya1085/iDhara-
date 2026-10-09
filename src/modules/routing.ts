@@ -193,6 +193,32 @@ function runDijkstraPath(
         toNodeId: 'NODE-GEETA-BHAWAN',
       });
     }
+
+    // Handle corridor RD-18 (AB Road BRTS North: Palasia ↔ Geeta Bhawan ↔ MY Hospital)
+    if (r.id === 'RD-18') {
+      const halfCost = {
+        road: r,
+        routingCost: evalResult.routingCost / 2,
+        effectiveEtaMin: Number((evalResult.effectiveEtaMin / 2).toFixed(1)),
+        riskPenaltyMin: Number((evalResult.riskPenaltyMin / 2).toFixed(1)),
+      };
+      adj.get('NODE-PALASIA')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-GEETA-BHAWAN',
+      });
+      adj.get('NODE-GEETA-BHAWAN')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-PALASIA',
+      });
+      adj.get('NODE-GEETA-BHAWAN')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-MY-HOSPITAL',
+      });
+      adj.get('NODE-MY-HOSPITAL')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-GEETA-BHAWAN',
+      });
+    }
   });
 
   const dist = new Map<string, number>();
@@ -271,7 +297,11 @@ function runDijkstraPath(
     Math.round((maxFloodProbability * 0.65 + avgProb * 0.35) * 100)
   );
   const confidence = Number((confSum / roadIds.length).toFixed(2));
-  const prov = createProvenance(params.mode, confidence, params.timelineHourOffset);
+  const prov = createProvenance(
+    params?.mode ?? ProductMode.SIMULATED,
+    confidence,
+    params?.timelineHourOffset ?? 0
+  );
   const expiry = new Date(
     new Date(prov.generated_at).getTime() + 12 * 60 * 1000
   ).toISOString();
@@ -534,7 +564,11 @@ export function computeSingleRoute(
       params,
       baseline
     );
-    const prov = createProvenance(params.mode, 0.78, params.timelineHourOffset);
+    const prov = createProvenance(
+      params?.mode ?? ProductMode.SIMULATED,
+      0.78,
+      params?.timelineHourOffset ?? 0
+    );
     const expiryDate = new Date(
       new Date(prov.generated_at).getTime() + 10 * 60 * 1000
     );
@@ -578,9 +612,9 @@ export function computeSingleRoute(
   }
 
   const prov = createProvenance(
-    params.mode,
+    params?.mode ?? ProductMode.SIMULATED,
     primaryRoute.confidence,
-    params.timelineHourOffset
+    params?.timelineHourOffset ?? 0
   );
 
   const safetyAdvisory =
@@ -766,7 +800,11 @@ export function computeRouteRecommendations(
         params,
         baseline
       );
-      const prov = createProvenance(params.mode, 0.78, params.timelineHourOffset);
+      const prov = createProvenance(
+        params?.mode ?? ProductMode.SIMULATED,
+        0.78,
+        params?.timelineHourOffset ?? 0
+      );
       const expiryDate = new Date(
         new Date(prov.generated_at).getTime() + 10 * 60 * 1000
       );

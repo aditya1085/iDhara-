@@ -3,6 +3,7 @@ import { ContextInspectorPanel } from './components/ContextInspectorPanel';
 import { DemoGuideModal } from './components/DemoGuideModal';
 import { DisasterTwinWorkspace } from './components/DisasterTwinWorkspace';
 import { IndoreFloodMap, MapInspectionTarget } from './components/IndoreFloodMap';
+import { Logo } from './components/Logo';
 import { ModuleWorkspace } from './components/ModuleWorkspaces';
 import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/SeverityVisuals';
 import { INTERSECTION_NODES, PILOT_SCOPE_ID } from './data/indorePilotData';
@@ -1263,6 +1264,11 @@ export default function App() {
     if (selectedTarget?.type === 'CELL') {
       setSelectedTarget(null);
     }
+    setActiveMapRoute(null);
+    setActiveEvacuationRoute(null);
+    setRouteStatus('IDLE');
+    setEvacuationStatus('IDLE');
+    setRouteUpdateNotification(null);
   };
 
   const handleSelectTarget = (target: MapInspectionTarget | null) => {
@@ -1294,127 +1300,15 @@ export default function App() {
 
   const handleRequestEvacuation = () => {
     if (!selectedArea) return;
-    const originNode = findNearestNodeForCell(selectedArea);
-
-    const existingPlan = evacuationPlans.find(
-      (p) => p.sourceCellId === selectedArea.id && p.assigned && p.routeRoadIds.length > 0
+    const plan = evaluateEvacuationForSelectedCell(
+      selectedArea,
+      shelters,
+      roads,
+      params,
+      evacuationPlans
     );
-
-    if (existingPlan) {
-      setActiveEvacuationRoute(existingPlan);
-      setEvacuationStatus('FEASIBLE');
-    } else {
-      const reachableShelters = shelters.filter(
-        (s) => s.reachable && s.remainingCapacity > 0
-      );
-      let bestPlan: EvacuationPlanItem | null = null;
-      for (const shelter of reachableShelters) {
-        const evacResult = computeEvacuationRouteToShelter(
-          originNode.id,
-          shelter.nearestNodeId,
-          roads
-        );
-        if (evacResult && evacResult.roadIds.length > 0) {
-          const populationAtRisk = Math.max(95, Math.round(selectedArea.populationEstimate * 0.03));
-          const prov = {
-            mode: params.mode,
-            scope_id: PILOT_SCOPE_ID,
-            generated_at: new Date().toISOString(),
-            data_as_of: new Date().toISOString(),
-            confidence: Number(((selectedArea.confidence + evacResult.confidence) / 2).toFixed(2)),
-          };
-          bestPlan = {
-            ...prov,
-            id: `EVAC-${selectedArea.id}`,
-            sourceCellId: selectedArea.id,
-            sourceLocality: `${selectedArea.localityName} (${selectedArea.wardCode})`,
-            wardCode: selectedArea.wardCode,
-            floodProbability: selectedArea.floodProbability,
-            predictedDepthCm: selectedArea.predictedDepthCm,
-            populationAtRisk,
-            priorityScore: 80,
-            priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
-            priorityReason: `Evacuation corridor to ${shelter.name}`,
-            criticalFacilities: [],
-            nearestShelters: [],
-            roadAccessibilityStatus: 'ACCESSIBLE',
-            roadAccessibilityLabel: `Corridor open to ${shelter.name}`,
-            originNodeId: originNode.id,
-            originNodeName: originNode.name,
-            severity: selectedArea.severity,
-            assigned: true,
-            assignmentSummary: `${selectedArea.localityName} → ${shelter.name}`,
-            targetShelterId: shelter.id,
-            targetShelterName: shelter.name,
-            recommendedRouteId: evacResult.roadIds.join(' → '),
-            routeRoadIds: evacResult.roadIds,
-            routeRoadNames: evacResult.roadNames,
-            routeNodeIds: evacResult.nodeIds,
-            routeLabel: 'Recommended evacuation route under current data',
-            routeRiskScore: evacResult.riskScore,
-            distanceKm: evacResult.distanceKm,
-            estimatedClearanceMin: Math.round(evacResult.travelTimeMin + 12),
-            busesAssigned: 4,
-            status: 'EVACUATING',
-            expiry: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-          };
-          break;
-        }
-      }
-
-      if (bestPlan) {
-        setActiveEvacuationRoute(bestPlan);
-        setEvacuationStatus('FEASIBLE');
-      } else {
-        const prov = {
-          mode: params.mode,
-          scope_id: PILOT_SCOPE_ID,
-          generated_at: new Date().toISOString(),
-          data_as_of: new Date().toISOString(),
-          confidence: selectedArea.confidence,
-        };
-        const failedPlan: EvacuationPlanItem = {
-          ...prov,
-          id: `EVAC-${selectedArea.id}`,
-          sourceCellId: selectedArea.id,
-          sourceLocality: `${selectedArea.localityName} (${selectedArea.wardCode})`,
-          wardCode: selectedArea.wardCode,
-          floodProbability: selectedArea.floodProbability,
-          predictedDepthCm: selectedArea.predictedDepthCm,
-          populationAtRisk: Math.max(95, Math.round(selectedArea.populationEstimate * 0.03)),
-          priorityScore: 90,
-          priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
-          priorityReason: 'All shelter routes impassable',
-          criticalFacilities: [],
-          nearestShelters: [],
-          roadAccessibilityStatus: 'DISCONNECTED',
-          roadAccessibilityLabel: 'All outgoing roads flooded or closed',
-          originNodeId: originNode.id,
-          originNodeName: originNode.name,
-          severity: selectedArea.severity,
-          assigned: false,
-          assignmentSummary: `${selectedArea.localityName} — UNASSIGNED`,
-          targetShelterId: '',
-          targetShelterName: 'None Reachable',
-          recommendedRouteId: '',
-          routeRoadIds: [],
-          routeRoadNames: [],
-          routeNodeIds: [],
-          routeLabel: 'Recommended evacuation route under current data',
-          routeRiskScore: 100,
-          distanceKm: 0,
-          estimatedClearanceMin: 0,
-          busesAssigned: 0,
-          status: 'UNASSIGNED_FAILURE',
-          failureBanner: 'NO FEASIBLE EVACUATION PLAN',
-          failureReason: 'Road network disconnected',
-          failureDetail: 'All outgoing corridors from area are closed or submerged above safety thresholds.',
-          expiry: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-        };
-        setActiveEvacuationRoute(failedPlan);
-        setEvacuationStatus('NO_FEASIBLE_EVACUATION');
-      }
-    }
+    setActiveEvacuationRoute(plan);
+    setEvacuationStatus(plan.assigned ? 'FEASIBLE' : 'NO_FEASIBLE_EVACUATION');
     setActiveMapRoute(null);
     setRouteStatus('IDLE');
   };
@@ -1613,17 +1507,7 @@ export default function App() {
             ☰
           </button>
 
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-5 bg-cyan-400" />
-            <div className="flex flex-col leading-none">
-              <span className="text-sm font-bold tracking-tight text-white font-sans uppercase">
-                iDhara EOC
-              </span>
-              <span className="text-[9.5px] text-cyan-300/80 font-mono font-medium tracking-wide">
-                Urban Emergency Operations
-              </span>
-            </div>
-          </div>
+          <Logo size="sm" />
         </div>
 
         {/* Center: THE 5 PRIMARY EOC METRICS (LOCATION · RISK · RAINFALL · CONFIDENCE · MODE) */}
@@ -1881,9 +1765,12 @@ export default function App() {
               </div>
             </div>
 
-            <div className="p-2.5 border-t border-slate-800 bg-[#060A12] font-mono text-[10.5px] text-slate-400 space-y-0.5">
-              <div className="text-slate-200 font-semibold">Indore Pilot 5×5 km</div>
-              <div className="text-slate-400 text-[10px]">Flood Prediction & Twin</div>
+            <div className="p-2.5 border-t border-slate-800 bg-[#060A12] flex items-center gap-2">
+              <Logo size="xs" showText={false} />
+              <div className="font-mono text-[10px] text-slate-400 space-y-0.2 min-w-0">
+                <div className="text-slate-200 font-semibold truncate">iDhara · Indore 5×5 km</div>
+                <div className="text-slate-500 text-[9px] truncate">Urban Flood & Disaster Twin</div>
+              </div>
             </div>
           </nav>
         )}

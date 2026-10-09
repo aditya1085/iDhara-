@@ -247,32 +247,37 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
         </div>
 
         {/* COMMAND CENTER: CURRENT SITUATION + CHRONOLOGICAL ACTIVITY FEED */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 font-mono">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 min-w-0">
           {/* Left 7 Cols: CURRENT SITUATION (Risk, Trend, High-risk zones, At-risk roads, Closed roads, Shelters available, Data confidence) */}
-          <div className="xl:col-span-7 p-2.5 bg-[#0C121E] border border-slate-800/90 space-y-2">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-cyan-300 font-bold">
-                CURRENT SITUATION
-              </span>
+          <div className="xl:col-span-7 p-3 bg-[#0C121E] border border-slate-800/90 space-y-2.5 min-w-0 overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-[11px] min-w-0">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="w-1.5 h-3 bg-cyan-400 inline-block" />
+                <span className="text-cyan-300 font-bold font-mono tracking-wider">
+                  CURRENT SITUATION
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={() => onNavigateTab('alerts')}
-                className="text-amber-300 hover:underline text-[10.5px] cursor-pointer"
+                className="text-amber-300 hover:underline text-[10.5px] cursor-pointer truncate max-w-full font-mono"
                 title="Review alerts pending human confirmation"
               >
-                {alerts.filter((a) => a.lifecycleState === 'PENDING REVIEW').length} Alerts Pending Human Confirmation →
+                {alerts.filter((a) => a.lifecycleState === 'PENDING REVIEW').length} Alerts Pending Human Review →
               </button>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-2 text-xs tabular-nums">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 text-xs min-w-0">
               <button
                 type="button"
                 onClick={() => onNavigateTab('risk-map')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="View overall pilot risk map"
               >
-                <div className="text-[10px] text-slate-400">Risk:</div>
-                <div className="text-sm font-bold text-rose-400 mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  Overall Risk
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-rose-400 mt-1 truncate">
                   {overallRiskLabel}
                 </div>
               </button>
@@ -280,11 +285,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('disaster-twin')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-amber-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-amber-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="Open Disaster Twin to simulate trend and forecast"
               >
-                <div className="text-[10px] text-slate-400">Trend:</div>
-                <div className="text-sm font-bold text-amber-400 mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  Situation Trend
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-amber-400 mt-1 truncate">
                   {trendLabel}
                 </div>
               </button>
@@ -292,11 +299,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('risk-map')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="Inspect High-risk zones on Risk Map"
               >
-                <div className="text-[10px] text-slate-400">High-risk zones:</div>
-                <div className="text-sm font-bold text-white mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  High-Risk Zones
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-white mt-1 truncate">
                   {highRiskZonesCount}
                 </div>
               </button>
@@ -304,11 +313,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('roads-routing')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-amber-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-amber-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="Inspect at-risk corridors in Roads & Routing"
               >
-                <div className="text-[10px] text-slate-400">At-risk roads:</div>
-                <div className="text-sm font-bold text-amber-300 mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  At-Risk Roads
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-amber-300 mt-1 truncate">
                   {atRiskRoadsCount}
                 </div>
               </button>
@@ -316,11 +327,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('roads-routing')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-rose-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="Inspect closed bridges and barricaded roads"
               >
-                <div className="text-[10px] text-slate-400">Closed roads:</div>
-                <div className="text-sm font-bold text-rose-400 mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  Closed Roads
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-rose-400 mt-1 truncate">
                   {closedRoads.length}
                 </div>
               </button>
@@ -328,11 +341,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('evacuation')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-emerald-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-emerald-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="Inspect reachable emergency shelters"
               >
-                <div className="text-[10px] text-slate-400">Shelters available:</div>
-                <div className="text-sm font-bold text-emerald-300 mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  Shelters Open
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-emerald-300 mt-1 truncate">
                   {availableSheltersCount}
                 </div>
               </button>
@@ -340,11 +355,13 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               <button
                 type="button"
                 onClick={() => onNavigateTab('data-health')}
-                className="p-2 bg-[#070B12] border border-slate-800 hover:border-cyan-500/60 cursor-pointer text-left transition-colors"
+                className="p-2 sm:p-2.5 bg-[#070B12] border border-slate-800 hover:border-cyan-500/60 cursor-pointer text-left transition-colors min-w-0 overflow-hidden flex flex-col justify-between"
                 title="Inspect data telemetry and model confidence"
               >
-                <div className="text-[10px] text-slate-400">Data confidence:</div>
-                <div className="text-sm font-bold text-cyan-300 mt-0.5">
+                <div className="text-[10px] font-sans font-medium text-slate-400 uppercase tracking-wider truncate">
+                  Data Confidence
+                </div>
+                <div className="text-sm sm:text-base font-bold font-mono text-cyan-300 mt-1 truncate">
                   {Math.round(dataHealthReport.confidence * 100)}%
                 </div>
               </button>
@@ -352,16 +369,16 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
           </div>
 
           {/* Right 5 Cols: Chronological Operational Activity Feed */}
-          <div className="xl:col-span-5 p-2.5 bg-[#0C121E] border border-slate-800/90 space-y-1.5">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="text-emerald-400 font-bold">
+          <div className="xl:col-span-5 p-3 bg-[#0C121E] border border-slate-800/90 space-y-2 min-w-0 overflow-hidden">
+            <div className="flex items-center justify-between text-[11px] min-w-0">
+              <span className="text-emerald-400 font-bold font-mono tracking-wider truncate">
                 ● ACTIVITY FEED (CHRONOLOGICAL)
               </span>
-              <span className="text-slate-400 text-[10px]">
-                Click entry to focus target
+              <span className="text-slate-400 text-[10px] font-sans shrink-0 hidden sm:inline">
+                Click entry to focus
               </span>
             </div>
-            <div className="space-y-1 text-[11px] tabular-nums">
+            <div className="space-y-1 text-[11px] tabular-nums font-mono min-w-0">
               {activityFeed.slice(0, 5).map((entry) => (
                 <button
                   key={entry.id}
@@ -377,12 +394,12 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
                       onNavigateTab('roads-routing');
                     }
                   }}
-                  className="w-full text-left px-2 py-1 bg-[#070B12] border-l-2 border-cyan-400 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-900 transition-colors"
+                  className="w-full text-left px-2 py-1.5 bg-[#070B12] border-l-2 border-cyan-400 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-900 transition-colors min-w-0 overflow-hidden"
                 >
-                  <div className="truncate">
-                    <span className="text-slate-400 mr-1.5">{entry.timestamp}</span>
+                  <div className="truncate min-w-0 flex-1">
+                    <span className="text-slate-400 mr-1.5 shrink-0">{entry.timestamp}</span>
                     {entry.eventTypeLabel && (
-                      <span className="text-cyan-300 font-bold mr-1.5">
+                      <span className="text-cyan-300 font-bold mr-1.5 shrink-0">
                         [{entry.eventTypeLabel}]
                       </span>
                     )}

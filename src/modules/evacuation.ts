@@ -163,6 +163,19 @@ export function computeEvacuationRouteToShelter(
       adj.get('NODE-GEETA-BHAWAN')?.push({ ...halfEdge, to: 'NODE-NAVALAKHA' });
       adj.get('NODE-NAVALAKHA')?.push({ ...halfEdge, to: 'NODE-GEETA-BHAWAN' });
     }
+
+    // Handle corridor RD-18 (AB Road BRTS North: Palasia ↔ Geeta Bhawan ↔ MY Hospital)
+    if (r.id === 'RD-18') {
+      const halfEdge = {
+        road: r,
+        cost: totalCost / 2,
+        etaMin: Number((eta / 2).toFixed(1)),
+      };
+      adj.get('NODE-PALASIA')?.push({ ...halfEdge, to: 'NODE-GEETA-BHAWAN' });
+      adj.get('NODE-GEETA-BHAWAN')?.push({ ...halfEdge, to: 'NODE-PALASIA' });
+      adj.get('NODE-GEETA-BHAWAN')?.push({ ...halfEdge, to: 'NODE-MY-HOSPITAL' });
+      adj.get('NODE-MY-HOSPITAL')?.push({ ...halfEdge, to: 'NODE-GEETA-BHAWAN' });
+    }
   });
 
   const dist = new Map<string, number>();
@@ -521,7 +534,7 @@ export function evaluateSheltersAndEvacuation(
       (r) =>
         (r.fromNodeId === originNode.id ||
           r.toNodeId === originNode.id ||
-          (originNode.id === 'NODE-GEETA-BHAWAN' && r.id === 'RD-22')) &&
+          (originNode.id === 'NODE-GEETA-BHAWAN' && (r.id === 'RD-22' || r.id === 'RD-18'))) &&
         r.currentState !== RoadStatus.CLOSED
     );
 
@@ -529,9 +542,9 @@ export function evaluateSheltersAndEvacuation(
       'ACCESSIBLE';
     let roadAccessibilityLabel = `Accessible (${openOrPassableCount} open/passable corridors at ${originNode.name})`;
 
-    if (!graphNodeHasOpenEdge || openOrPassableCount === 0) {
+    if (!graphNodeHasOpenEdge) {
       roadAccessibilityStatus = 'DISCONNECTED';
-      roadAccessibilityLabel = `Disconnected — All ${incidentRoads.length} corridors at ${originNode.name} are CLOSED`;
+      roadAccessibilityLabel = `Disconnected — All corridors at ${originNode.name} are CLOSED`;
     } else if (closedCount > 0 || likelyFloodedCount > 0) {
       roadAccessibilityStatus = 'RESTRICTED_HIGH_RISK';
       roadAccessibilityLabel = `Restricted — ${closedCount} CLOSED, ${likelyFloodedCount} LIKELY_FLOODED near ${originNode.name}`;
@@ -844,7 +857,7 @@ export function evaluateEvacuationForSelectedCell(
     (r) =>
       (r.fromNodeId === originNode.id ||
         r.toNodeId === originNode.id ||
-        (originNode.id === 'NODE-GEETA-BHAWAN' && r.id === 'RD-22')) &&
+        (originNode.id === 'NODE-GEETA-BHAWAN' && (r.id === 'RD-22' || r.id === 'RD-18'))) &&
       r.currentState !== RoadStatus.CLOSED
   );
 

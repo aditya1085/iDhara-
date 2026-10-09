@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Logo } from './Logo';
 import {
   DisasterStage,
   NavigationTab,
@@ -220,7 +221,7 @@ export const DemoGuideModal: React.FC<DemoGuideModalProps> = ({
         {/* Top Header */}
         <div className="px-5 py-3.5 bg-[#0A0F1D] border-b border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-2 h-5 bg-cyan-400" />
+            <Logo size="sm" showText={false} />
             <div>
               <h2 id="demo-guide-title" className="text-sm font-bold text-white tracking-wide font-mono">
                 iDhara Demo Walkthrough — 26-Step Verification Path
