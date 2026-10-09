@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { INTERSECTION_NODES } from '../data/indorePilotData';
 import {
    getDisasterTwinStages,
@@ -32,6 +32,7 @@ import {
   isAnalystOrModelOperator,
 } from '../types/idhara';
 import { AlertCommandWorkspace } from './AlertCommandWorkspace';
+import { LocationReportModal } from './LocationReportModal';
 import { MapInspectionTarget } from './IndoreFloodMap';
 import { LiveFeedSimulator } from './LiveFeedSimulator';
 import { PostDisasterLearningWorkspace } from './PostDisasterLearningWorkspace';
@@ -158,6 +159,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
   );
   const activeRouteObj =
     routes.find((r) => r.id === activeRouteId) ?? routes[0] ?? null;
+
+  const [isLocationReportOpen, setIsLocationReportOpen] = useState<boolean>(false);
 
   // 1. OVERVIEW / COMMAND CENTER SITUATION & ACTIVITY FEED STRIP
   if (activeTab === 'overview') {
@@ -1760,7 +1763,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
 
     return (
       <div className="flex-1 min-h-0 p-4 bg-[#080C14] space-y-4 overflow-y-auto">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#0C1220] p-3 border border-slate-800 rounded">
           <div>
             <div className="font-mono text-[11px] text-cyan-400">
               DATA QUALITY & SENSOR FRESHNESS STATES (FRESH · STALE · SUSPECT · MISSING)
@@ -1769,7 +1772,18 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
               Data Health & Telemetry Quality Panel ({dataHealthReport.overallHealthPct}%)
             </h2>
           </div>
-          <ProvenanceStrip provenance={dataHealthReport} compact />
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setIsLocationReportOpen(true)}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-black font-semibold text-xs rounded shadow-md transition-all flex items-center gap-2 cursor-pointer border border-cyan-300/40"
+              title="Generate a high-fidelity PDF report for any ward, catchment, or sensor zone"
+            >
+              <span>📄</span>
+              <span>Generate Location PDF Report</span>
+            </button>
+            <ProvenanceStrip provenance={dataHealthReport} compact />
+          </div>
         </div>
 
         {/* Highlighted Sensor State Examples (Rain Gauge A: FRESH, Water Sensor B: STALE, Water Sensor C: SUSPECT) */}
@@ -1872,6 +1886,18 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Location PDF Report Workflow */}
+        <LocationReportModal
+          isOpen={isLocationReportOpen}
+          onClose={() => setIsLocationReportOpen(false)}
+          cells={cells}
+          roads={roads}
+          sensors={sensors}
+          alerts={alerts}
+          dataHealthReport={dataHealthReport}
+          activeRole={activeRole}
+        />
       </div>
     );
   }
