@@ -3,6 +3,7 @@ import {
   ComputedPathDetail,
   IntersectionNode,
   NoFeasibleRouteInfo,
+  ProductMode,
   RoadSegmentState,
   RoadStatus,
   RouteRecommendation,

@@ -85,8 +85,8 @@ summary:focus-visible {
 
 /* Custom dark mission-control scrollbars */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -94,10 +94,40 @@ summary:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #1E293B;
-  border-radius: 1px;
+  background: #253349;
+  border-radius: 4px;
+  border: 1px solid #0B1322;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: #38BDF8;
+}
+
+/* Firefox standard scrollbar properties */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #253349 #070B12;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #334155 #070B12;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #070B12;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
   background: #334155;
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

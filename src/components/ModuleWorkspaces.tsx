@@ -8,7 +8,6 @@ import { getEventPresets } from '../modules/historicalReplay';
 import { TRAVEL_PROFILE_POLICIES } from '../modules/routing';
 import {
   ActivityFeedEntry,
-  AlertComposerDraftInput,
   AlertItem,
   AlertLifecycleState,
   DataHealthReport,
@@ -83,7 +82,6 @@ interface ModuleWorkspaceProps {
     alertId: string,
     nextState: AlertLifecycleState
   ) => void;
-  onComposeAlert: (draft: AlertComposerDraftInput) => void;
   validationReport: ValidationReport;
   isPlayingTimeline: boolean;
   onTogglePlayTimeline: () => void;
@@ -136,7 +134,6 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
   alerts,
   onAcknowledgeAlert,
   onTransitionAlertLifecycle,
-  onComposeAlert,
   validationReport,
   isPlayingTimeline,
   onTogglePlayTimeline,
@@ -1713,7 +1710,7 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
     );
   }
 
-  // 6. ALERTS & COMMAND CENTER WORKSPACE (7-State Lifecycle + Alert Composer)
+  // 6. ALERTS & COMMAND CENTER WORKSPACE (7-State Lifecycle)
   if (activeTab === 'alerts') {
     return (
       <AlertCommandWorkspace
@@ -1725,8 +1722,8 @@ export const ModuleWorkspace: React.FC<ModuleWorkspaceProps> = ({
         activeRole={activeRole}
         activityFeed={activityFeed}
         onTransitionAlertLifecycle={onTransitionAlertLifecycle}
-        onComposeAlert={onComposeAlert}
         onSelectMapTarget={onSelectMapTarget}
+        onAcknowledgeAlert={onAcknowledgeAlert}
       />
     );
   }

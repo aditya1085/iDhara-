@@ -11,8 +11,74 @@ import {
   SensorNode,
   UserRole,
   WarningLevel,
+  isAnalystOrModelOperator,
 } from '../types/idhara';
 import { createProvenance } from './dataIngestion';
+
+export function isControlRoomOperator(role: UserRole | string): boolean {
+  return role === UserRole.CONTROL_ROOM_OPERATOR || role === 'Control-room operator';
+}
+
+export function isCitizenRole(role: UserRole | string): boolean {
+  return role === UserRole.CITIZEN || role === 'Citizen';
+}
+
+export function isEmergencyResponder(role: UserRole | string): boolean {
+  return role === UserRole.EMERGENCY_RESPONDER || role === 'Emergency responder';
+}
+
+export function isTrafficAuthority(role: UserRole | string): boolean {
+  return role === UserRole.TRAFFIC_AUTHORITY || role === 'Traffic authority';
+}
+
+/**
+ * Control-room operator is the ONLY role authorized to publish official alerts.
+ */
+export function canRolePublishAlert(role: UserRole | string): boolean {
+  return isControlRoomOperator(role);
+}
+
+/**
+ * Control-room operator is the ONLY role authorized to acknowledge/accept alerts.
+ */
+export function canRoleAcknowledgeAlert(role: UserRole | string): boolean {
+  return isControlRoomOperator(role);
+}
+
+/**
+ * Role-based permission check for alert lifecycle transitions.
+ * - Control-room operator: full authority.
+ * - Analyst / Model Operator: may submit technical drafts for review, cannot publish or acknowledge.
+ * - Emergency responder, Traffic authority: cannot publish, acknowledge, or change statuses.
+ * - Citizen: strictly read-only access.
+ */
+export function canRoleChangeAlertLifecycle(
+  role: UserRole | string,
+  targetState: AlertLifecycleState
+): boolean {
+  if (isControlRoomOperator(role)) return true;
+  if (targetState === 'PUBLISHED' || targetState === 'UPDATED') {
+    return false; // Strictly Control-room operator only
+  }
+  if (isCitizenRole(role) || isEmergencyResponder(role) || isTrafficAuthority(role)) {
+    return false;
+  }
+  if (isAnalystOrModelOperator(role)) {
+    return targetState === 'PENDING REVIEW' || targetState === 'DRAFT';
+  }
+  return false;
+}
+
+/**
+ * Role-based permission check for alert creation.
+ * Citizen, Emergency responder, Traffic authority cannot create alerts.
+ */
+export function canRoleComposeAlert(role: UserRole | string): boolean {
+  if (isCitizenRole(role) || isEmergencyResponder(role) || isTrafficAuthority(role)) {
+    return false;
+  }
+  return isControlRoomOperator(role) || isAnalystOrModelOperator(role);
+}
 
 export interface AlertLifecycleOverride {
   lifecycleState: AlertLifecycleState;

@@ -9,7 +9,9 @@ import { MODE_META, SEVERITY_META, WARNING_LEVEL_META } from './components/Sever
 import { INTERSECTION_NODES, PILOT_SCOPE_ID } from './data/indorePilotData';
 import {
   AlertLifecycleOverride,
-  createComposedAlert,
+  canRoleAcknowledgeAlert,
+  canRoleChangeAlertLifecycle,
+  canRolePublishAlert,
 } from './modules/alerts';
 import {
   DEFAULT_INJECTED_OBSERVATIONS,
@@ -35,7 +37,6 @@ import {
 } from './modules/routing';
 import {
   ActivityFeedEntry,
-  AlertComposerDraftInput,
   AlertItem,
   AlertLifecycleState,
   DISASTER_STAGE_INFO,
@@ -1007,6 +1008,26 @@ export default function App() {
     alertId: string,
     nextState: AlertLifecycleState
   ) => {
+    // Strict Role Authorization: Only authorized roles may transition lifecycle
+    if (!canRoleChangeAlertLifecycle(activeRole, nextState)) {
+      console.warn(
+        `[iDhara Auth] Unauthorized lifecycle transition to ${nextState} attempted by ${activeRole}`
+      );
+      const nowStr = new Date().toTimeString().slice(0, 8);
+      setActivityFeed((prev) => [
+        {
+          id: `ACT-ALT-DENIED-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ALERT' as const,
+          message: `Action Rejected: Only Control-room operator is authorized to publish alerts.`,
+          detail: `Attempt by role “${activeRole}” to transition alert ${alertId} to ${nextState} was blocked by security policy.`,
+          severity: 'CRITICAL' as const,
+        },
+        ...prev,
+      ].slice(0, 25));
+      return;
+    }
+
     const nowStr = new Date().toTimeString().slice(0, 8);
     const targetAlert = alerts.find((a) => a.id === alertId);
 
@@ -1054,41 +1075,6 @@ export default function App() {
               : nextState === 'REJECTED' || nextState === 'CANCELLED'
               ? ('WARNING' as const)
               : ('INFO' as const),
-        },
-        ...prev,
-      ].slice(0, 25)
-    );
-  };
-
-  const handleComposeAlert = (draft: AlertComposerDraftInput) => {
-    const newAlert = createComposedAlert(draft, cells, params);
-    const nowStr = new Date().toTimeString().slice(0, 8);
-
-    setCustomAlerts((prev) => [newAlert, ...prev]);
-
-    const eventTypeLabel =
-      newAlert.lifecycleState === 'PUBLISHED'
-        ? ('Operator approved alert' as const)
-        : ('Alert drafted' as const);
-
-    setActivityFeed((prev) =>
-      [
-        {
-          id: `ACT-ALT-COMP-${Date.now()}`,
-          timestamp: nowStr,
-          category: 'ALERT' as const,
-          eventTypeLabel,
-          message: `${newAlert.lifecycleState}: “${newAlert.actionHeadline}” for ${newAlert.location}`,
-          detail: `${newAlert.probabilityStatement} Audience: ${newAlert.audiences.join(
-            ', '
-          )}.`,
-          severity:
-            newAlert.lifecycleState === 'PUBLISHED'
-              ? ('SUCCESS' as const)
-              : ('WARNING' as const),
-          relatedTarget: draft.cellId
-            ? { type: 'CELL' as const, id: draft.cellId }
-            : undefined,
         },
         ...prev,
       ].slice(0, 25)
@@ -1237,10 +1223,57 @@ export default function App() {
   };
 
   const handleAcknowledgeAlert = (id: string) => {
+    // Strict Role Authorization: Only Control-room operator can acknowledge/accept alerts
+    if (!canRoleAcknowledgeAlert(activeRole)) {
+      console.warn(
+        `[iDhara Auth] Unauthorized alert acknowledgment attempted by ${activeRole}`
+      );
+      const nowStr = new Date().toTimeString().slice(0, 8);
+      setActivityFeed((prev) => [
+        {
+          id: `ACT-ALT-ACK-DENIED-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ALERT' as const,
+          message: `Action Rejected: Only Control-room operator is authorized to acknowledge alerts.`,
+          detail: `Attempt by role “${activeRole}” to acknowledge/accept alert ${id} was blocked by security policy.`,
+          severity: 'CRITICAL' as const,
+        },
+        ...prev,
+      ].slice(0, 25));
+      return;
+    }
+
+    const nowStr = new Date().toTimeString().slice(0, 8);
+    const targetAlert = alerts.find((a) => a.id === id);
+
     setAcknowledgedAlerts((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const willBeAcknowledged = !next.has(id);
+      if (willBeAcknowledged) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+
+      setActivityFeed((actPrev) => [
+        {
+          id: `ACT-ALT-ACK-${Date.now()}`,
+          timestamp: nowStr,
+          category: 'ALERT' as const,
+          eventTypeLabel: 'Operator approved alert' as const,
+          message: willBeAcknowledged
+            ? `Alert ${id} acknowledged & accepted by ${activeRole}`
+            : `Alert ${id} unacknowledged by ${activeRole}`,
+          detail: `${targetAlert?.actionHeadline ?? 'Official Bulletin'} · Location: ${
+            targetAlert?.location ?? 'Indore Pilot'
+          }`,
+          severity: willBeAcknowledged
+            ? ('SUCCESS' as const)
+            : ('INFO' as const),
+        },
+        ...actPrev,
+      ].slice(0, 25));
+
       return next;
     });
   };
@@ -1797,8 +1830,61 @@ export default function App() {
                 setActiveTab('overview');
               }}
             />
-          ) : activeTab === 'alerts' ||
-            activeTab === 'validation' ||
+          ) : activeTab === 'alerts' ? (
+            <div className="flex-1 min-h-0 h-full flex flex-col overflow-hidden">
+              <ModuleWorkspace
+                activeTab="alerts"
+                params={params}
+                onUpdateParams={updateParamsWithHysteresis}
+                cells={cells}
+                roads={roads}
+                sensors={sensors}
+                shelters={shelters}
+                evacuationPlans={evacuationPlans}
+                evacuationModeActive={evacuationModeActive}
+                evacuationTriggerReason={evacuationTriggerReason}
+                evacuationThreshold={evacuationConfig.thresholdProbability}
+                manualEvacuationActive={evacuationConfig.manualModeActive}
+                shelterCapacityScalePct={evacuationConfig.shelterCapacityScalePct}
+                lastEvacAutoRefreshNote={lastEvacAutoRefreshNote}
+                onToggleManualEvacuation={handleToggleManualEvacuation}
+                onChangeEvacuationThreshold={handleChangeEvacuationThreshold}
+                onChangeShelterCapacityScale={handleChangeShelterCapacityScale}
+                onRecalculateEvacuationPlan={handleRecalculateEvacuationPlan}
+                onSimulateEvacFailureState={handleSimulateEvacFailureState}
+                routes={routes}
+                activeRouteId={activeRoute?.id ?? ''}
+                onSelectRouteId={setSelectedRouteId}
+                customOriginId={customOriginId}
+                customDestId={customDestId}
+                travelProfile={travelProfile}
+                onChangeCustomRoute={handleChangeCustomRoute}
+                onChangeTravelProfile={handleChangeTravelProfile}
+                routeUpdateNotification={routeUpdateNotification}
+                onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
+                onTriggerDemoIncident={handleTriggerDemoIncident}
+                onTriggerNoFeasibleRouteDemo={handleTriggerNoFeasibleRouteDemo}
+                alerts={alerts}
+                onAcknowledgeAlert={handleAcknowledgeAlert}
+                onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
+                validationReport={validationReport}
+                isPlayingTimeline={isPlayingTimeline}
+                onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
+                replaySpeed={replaySpeed}
+                onChangeReplaySpeed={setReplaySpeed}
+                onStepTimeline={handleStepTimeline}
+                activeModelVersionId={activeModelVersionId}
+                onChangeModelVersionId={handleChangeModelVersionId}
+                dataHealthReport={dataHealthReport}
+                activeRole={activeRole}
+                onSelectMapTarget={handleSelectTarget}
+                onNavigateTab={handleNavigateTab}
+                activityFeed={activityFeed}
+                onInjectObservation={handleInjectObservation}
+                onResetObservations={handleResetObservations}
+              />
+            </div>
+          ) : activeTab === 'validation' ||
             activeTab === 'event-replay' ||
             activeTab === 'data-health' ? (
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -1837,7 +1923,6 @@ export default function App() {
                 alerts={alerts}
                 onAcknowledgeAlert={handleAcknowledgeAlert}
                 onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
-                onComposeAlert={handleComposeAlert}
                 validationReport={validationReport}
                 isPlayingTimeline={isPlayingTimeline}
                 onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
@@ -1894,7 +1979,6 @@ export default function App() {
                   alerts={alerts}
                   onAcknowledgeAlert={handleAcknowledgeAlert}
                   onTransitionAlertLifecycle={handleTransitionAlertLifecycle}
-                  onComposeAlert={handleComposeAlert}
                   validationReport={validationReport}
                   isPlayingTimeline={isPlayingTimeline}
                   onTogglePlayTimeline={() => setIsPlayingTimeline((p) => !p)}
