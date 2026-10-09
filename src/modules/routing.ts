@@ -167,6 +167,32 @@ function runDijkstraPath(
       toNodeId: r.fromNodeId,
       ...evalResult,
     });
+
+    // Handle corridor RD-22 (AB Road BRTS South: MY Hospital ↔ Geeta Bhawan ↔ Navalakha)
+    if (r.id === 'RD-22') {
+      const halfCost = {
+        road: r,
+        routingCost: evalResult.routingCost / 2,
+        effectiveEtaMin: Number((evalResult.effectiveEtaMin / 2).toFixed(1)),
+        riskPenaltyMin: Number((evalResult.riskPenaltyMin / 2).toFixed(1)),
+      };
+      adj.get('NODE-MY-HOSPITAL')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-GEETA-BHAWAN',
+      });
+      adj.get('NODE-GEETA-BHAWAN')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-MY-HOSPITAL',
+      });
+      adj.get('NODE-GEETA-BHAWAN')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-NAVALAKHA',
+      });
+      adj.get('NODE-NAVALAKHA')?.push({
+        ...halfCost,
+        toNodeId: 'NODE-GEETA-BHAWAN',
+      });
+    }
   });
 
   const dist = new Map<string, number>();

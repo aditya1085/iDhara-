@@ -17,6 +17,7 @@ import {
 import {
   computeEvacuationRouteToShelter,
   DEFAULT_EVACUATION_CONFIG,
+  evaluateEvacuationForSelectedCell,
   EvacuationConfig,
 } from './modules/evacuation';
 import { getPresetById, resolveTimelineStepParameters } from './modules/historicalReplay';
@@ -42,6 +43,7 @@ import {
   FloodRiskCell,
   FloodSeverity,
   InjectedObservationState,
+  MapSurfaceMetric,
   NavigationTab,
   ObservationInjectionType,
   ProductMode,
@@ -188,6 +190,26 @@ export default function App() {
   const [activeEvacuationRoute, setActiveEvacuationRoute] = useState<EvacuationPlanItem | null>(null);
   const [routeStatus, setRouteStatus] = useState<'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_ROUTE'>('IDLE');
   const [evacuationStatus, setEvacuationStatus] = useState<'IDLE' | 'FEASIBLE' | 'NO_FEASIBLE_EVACUATION'>('IDLE');
+
+  // Shared map viewport, metric, and layer state preserved across all tabs
+  const [mapZoom, setMapZoom] = useState<number>(1);
+  const [mapPanOffset, setMapPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [mapMetricOverlay, setMapMetricOverlay] = useState<MapSurfaceMetric>('FLOOD_PROBABILITY');
+  const [mapLayers, setMapLayers] = useState<Record<string, boolean>>({
+    pilotBoundary: true,
+    heatmapGlow: true,
+    riskContours: true,
+    gridCells: true,
+    patterns: true,
+    drainage: true,
+    roads: true,
+    routes: true,
+    rainGauges: true,
+    waterLevelSensors: true,
+    assetsAndShelters: true,
+    cellLabels: true,
+  });
+  const [isMapLegendCollapsed, setIsMapLegendCollapsed] = useState<boolean>(false);
 
   const [customOriginId, setCustomOriginId] = useState<string>('NODE-RAJWADA');
   const [customDestId, setCustomDestId] = useState<string>('NODE-MY-HOSPITAL');
@@ -2027,6 +2049,16 @@ export default function App() {
                   onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
                   routeUpdateNotification={routeUpdateNotification}
                   activeTab={activeTab}
+                  zoom={mapZoom}
+                  onZoomChange={setMapZoom}
+                  panOffset={mapPanOffset}
+                  onPanOffsetChange={setMapPanOffset}
+                  metricOverlay={mapMetricOverlay}
+                  onMetricOverlayChange={setMapMetricOverlay}
+                  layers={mapLayers}
+                  onLayersChange={setMapLayers}
+                  isLegendCollapsed={isMapLegendCollapsed}
+                  onLegendCollapsedChange={setIsMapLegendCollapsed}
                 />
               </div>
             </div>
@@ -2040,23 +2072,25 @@ export default function App() {
                     <select
                       value={customOriginId}
                       onChange={(e) => handleChangeCustomRoute(e.target.value, customDestId)}
-                      className="bg-[#05080E] border border-slate-700 text-slate-200 px-1.5 py-0.5 text-[10.5px]"
+                      className="bg-[#05080E] border border-slate-700 text-slate-200 px-1.5 py-0.5 text-[10.5px] max-w-[170px]"
                     >
-                      <option value="NODE-RAJWADA">Origin: Rajwada Chowk</option>
-                      <option value="NODE-BADA-GANPATI">Origin: Bada Ganpati</option>
-                      <option value="NODE-SARWATE">Origin: Sarwate Bus Stand</option>
-                      <option value="NODE-CHIMANBAGH">Origin: Chimanbagh Ground</option>
+                      {INTERSECTION_NODES.map((n) => (
+                        <option key={`orig-${n.id}`} value={n.id}>
+                          Origin: {n.name}
+                        </option>
+                      ))}
                     </select>
                     <span className="text-slate-600">→</span>
                     <select
                       value={customDestId}
                       onChange={(e) => handleChangeCustomRoute(customOriginId, e.target.value)}
-                      className="bg-[#05080E] border border-slate-700 text-slate-200 px-1.5 py-0.5 text-[10.5px]"
+                      className="bg-[#05080E] border border-slate-700 text-slate-200 px-1.5 py-0.5 text-[10.5px] max-w-[170px]"
                     >
-                      <option value="NODE-MY-HOSPITAL">Dest: MY Hospital Gate</option>
-                      <option value="NODE-REGAL">Dest: Regal Square</option>
-                      <option value="NODE-PALASIA">Dest: Palasia Square</option>
-                      <option value="NODE-GANDHI-HALL">Dest: Gandhi Hall Staging</option>
+                      {INTERSECTION_NODES.map((n) => (
+                        <option key={`dest-${n.id}`} value={n.id}>
+                          Dest: {n.name}
+                        </option>
+                      ))}
                     </select>
 
                     <select
@@ -2167,6 +2201,16 @@ export default function App() {
                   onDismissRouteUpdate={() => setRouteUpdateNotification(null)}
                   routeUpdateNotification={routeUpdateNotification}
                   activeTab={activeTab}
+                  zoom={mapZoom}
+                  onZoomChange={setMapZoom}
+                  panOffset={mapPanOffset}
+                  onPanOffsetChange={setMapPanOffset}
+                  metricOverlay={mapMetricOverlay}
+                  onMetricOverlayChange={setMapMetricOverlay}
+                  layers={mapLayers}
+                  onLayersChange={setMapLayers}
+                  isLegendCollapsed={isMapLegendCollapsed}
+                  onLegendCollapsedChange={setIsMapLegendCollapsed}
                 />
 
                 {/* Optional Expandable Modal/Drawer for Corridor Table */}

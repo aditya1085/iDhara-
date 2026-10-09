@@ -150,6 +150,19 @@ export function computeEvacuationRouteToShelter(
       cost: totalCost,
       etaMin: eta,
     });
+
+    // Handle corridor RD-22 (AB Road BRTS South: MY Hospital ↔ Geeta Bhawan ↔ Navalakha)
+    if (r.id === 'RD-22') {
+      const halfEdge = {
+        road: r,
+        cost: totalCost / 2,
+        etaMin: Number((eta / 2).toFixed(1)),
+      };
+      adj.get('NODE-MY-HOSPITAL')?.push({ ...halfEdge, to: 'NODE-GEETA-BHAWAN' });
+      adj.get('NODE-GEETA-BHAWAN')?.push({ ...halfEdge, to: 'NODE-MY-HOSPITAL' });
+      adj.get('NODE-GEETA-BHAWAN')?.push({ ...halfEdge, to: 'NODE-NAVALAKHA' });
+      adj.get('NODE-NAVALAKHA')?.push({ ...halfEdge, to: 'NODE-GEETA-BHAWAN' });
+    }
   });
 
   const dist = new Map<string, number>();
@@ -506,7 +519,9 @@ export function evaluateSheltersAndEvacuation(
     // Also check if the originNode itself has any non-CLOSED road connected in the graph
     const graphNodeHasOpenEdge = activeRoads.some(
       (r) =>
-        (r.fromNodeId === originNode.id || r.toNodeId === originNode.id) &&
+        (r.fromNodeId === originNode.id ||
+          r.toNodeId === originNode.id ||
+          (originNode.id === 'NODE-GEETA-BHAWAN' && r.id === 'RD-22')) &&
         r.currentState !== RoadStatus.CLOSED
     );
 
@@ -811,140 +826,172 @@ export function evaluateEvacuationForSelectedCell(
     return existing;
   }
 
-  // 2. Otherwise determine nearest reachable shelter and route
+  // 2. Determine origin node and exposed population at risk proxy
   const originNode = findNearestNodeForCell(cell);
-  const reachableShelters = shelters.filter((s) => s.reachable && s.remainingCapacity > 0);
+  const exposureRatio =
+    cell.severity === FloodSeverity.CRITICAL
+      ? 0.042
+      : cell.severity === FloodSeverity.HIGH
+      ? 0.026
+      : 0.016;
+  const populationAtRisk = Math.max(
+    95,
+    Math.round((cell.populationEstimate * exposureRatio) / 10) * 10
+  );
 
-  if (reachableShelters.length === 0) {
-    const prov = createProvenance(params.mode, cell.confidence, params.timelineHourOffset);
+  // Check if originNode itself has open incident corridors
+  const originHasOpenCorridors = roads.some(
+    (r) =>
+      (r.fromNodeId === originNode.id ||
+        r.toNodeId === originNode.id ||
+        (originNode.id === 'NODE-GEETA-BHAWAN' && r.id === 'RD-22')) &&
+      r.currentState !== RoadStatus.CLOSED
+  );
+
+  // Evaluate route from originNode to all reachable shelters
+  const reachableShelters = shelters.filter((s) => s.reachable);
+  const shelterRoutes = reachableShelters
+    .map((sh) => {
+      const route = computeEvacuationRouteToShelter(
+        originNode.id,
+        sh.nearestNodeId,
+        roads
+      );
+      const dxKm = ((sh.x - (cell.col + 0.5) * 125) / 1000) * 5.0;
+      const dyKm = ((sh.y - (cell.row + 0.5) * 125) / 1000) * 5.0;
+      const crowFliesKm = Number(Math.max(0.4, Math.hypot(dxKm, dyKm)).toFixed(2));
+      return {
+        shelter: sh,
+        route,
+        crowFliesKm,
+      };
+    })
+    .sort((a, b) => {
+      const aOk = Boolean(a.route);
+      const bOk = Boolean(b.route);
+      if (aOk !== bOk) return aOk ? -1 : 1;
+      if (a.route && b.route) return a.route.routingCost - b.route.routingCost;
+      return a.crowFliesKm - b.crowFliesKm;
+    });
+
+  const nearestSheltersOptions: EvacuationNearestShelterOption[] = shelterRoutes.map((sr) => ({
+    shelterId: sr.shelter.id,
+    shelterName: sr.shelter.name,
+    distanceKm: sr.route ? sr.route.distanceKm : sr.crowFliesKm,
+    travelTimeMin: sr.route ? sr.route.travelTimeMin : null,
+    reachable: Boolean(sr.route),
+    remainingCapacityBefore: sr.shelter.remainingCapacity,
+  }));
+
+  const candidateWithRoute = shelterRoutes.filter(
+    (sr): sr is { shelter: Shelter; route: EvacRouteResult; crowFliesKm: number } =>
+      sr.route !== null && sr.route.roadIds.length > 0
+  );
+
+  // Preference: 1) has remaining capacity >= populationAtRisk, 2) has any remaining capacity > 0
+  const feasibleMatch =
+    candidateWithRoute.find((sr) => sr.shelter.remainingCapacity >= populationAtRisk) ??
+    candidateWithRoute.find((sr) => sr.shelter.remainingCapacity > 0);
+
+  if (feasibleMatch) {
+    const chosenShelter = feasibleMatch.shelter;
+    const chosenRoute = feasibleMatch.route;
+    const planConfidence = Number(
+      ((cell.confidence + chosenRoute.confidence) / 2).toFixed(2)
+    );
+    const prov = createProvenance(
+      params.mode,
+      planConfidence,
+      params.timelineHourOffset
+    );
+    const expiryDate = new Date(Date.now() + 15 * 60000);
+    const busesAssigned = Math.max(2, Math.ceil(populationAtRisk / 50));
+    const estimatedClearanceMin = Math.round(
+      chosenRoute.travelTimeMin + Math.min(25, populationAtRisk * 0.035)
+    );
+
     return {
       ...prov,
-      id: `EVAC-EVAL-${cell.id}`,
+      id: `EVAC-EVAL-${cell.id}-${chosenShelter.id}`,
       sourceCellId: cell.id,
-      sourceLocality: cell.localityName,
+      sourceLocality: `${cell.localityName} (${cell.wardCode})`,
       wardCode: cell.wardCode,
       floodProbability: cell.floodProbability,
       predictedDepthCm: cell.predictedDepthCm,
-      populationAtRisk: cell.populationEstimate,
+      populationAtRisk,
       priorityScore: Math.round(cell.floodProbability * 100),
       priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
-      priorityReason: 'Zone evaluated for civilian shelter evacuation.',
+      priorityReason: `Evaluated evacuation corridor to ${chosenShelter.name} via ${originNode.name}.`,
       criticalFacilities: [],
-      nearestShelters: [],
-      roadAccessibilityStatus: 'DISCONNECTED',
-      roadAccessibilityLabel: 'No reachable municipal shelters remaining.',
+      nearestShelters: nearestSheltersOptions,
+      roadAccessibilityStatus: 'ACCESSIBLE',
+      roadAccessibilityLabel: `Passable corridor to ${chosenShelter.name}`,
       originNodeId: originNode.id,
       originNodeName: originNode.name,
       severity: cell.severity,
-      assigned: false,
-      assignmentSummary: 'UNASSIGNED — All shelters unreachable or full',
-      targetShelterId: '',
-      targetShelterName: 'None available',
-      recommendedRouteId: '',
-      routeRoadIds: [],
-      routeRoadNames: [],
-      routeNodeIds: [],
+      assigned: true,
+      assignmentSummary: `${cell.localityName} (${cell.id}) → ${chosenShelter.name}`,
+      targetShelterId: chosenShelter.id,
+      targetShelterName: chosenShelter.name,
+      recommendedRouteId: chosenRoute.roadIds.join(' → '),
+      routeRoadIds: chosenRoute.roadIds,
+      routeRoadNames: chosenRoute.roadNames,
+      routeNodeIds: chosenRoute.nodeIds,
       routeLabel: 'Recommended evacuation route under current data',
-      routeRiskScore: 100,
-      distanceKm: 0,
-      estimatedClearanceMin: 0,
-      busesAssigned: 0,
-      status: 'UNASSIGNED_FAILURE',
-      failureBanner: 'NO FEASIBLE EVACUATION PLAN',
-      failureReason: 'No reachable shelter',
-      failureDetail: 'All municipal high-ground shelters are cut off by road closures or capacity saturation.',
-      expiry: new Date(Date.now() + 15 * 60000).toISOString(),
+      routeRiskScore: chosenRoute.riskScore,
+      distanceKm: chosenRoute.distanceKm,
+      estimatedClearanceMin,
+      busesAssigned,
+      status: 'EVACUATING',
+      expiry: expiryDate.toISOString(),
     };
   }
 
-  // Sort candidate shelters by distance from origin node
-  const sorted = [...reachableShelters].sort((a, b) => {
-    const da = Math.hypot(a.lat - cell.lat, a.lng - cell.lng);
-    const db = Math.hypot(b.lat - cell.lat, b.lng - cell.lng);
-    return da - db;
-  });
+  // FAILURE DIAGNOSTICS: Determine accurate, evidence-based root cause
+  let failureReason: EvacuationFailureReason = 'Shelter capacity exceeded';
+  let failureDetail = '';
 
-  for (const candidateShelter of sorted) {
-    const evacRoute = computeEvacuationRouteToShelter(
-      originNode.id,
-      candidateShelter.nearestNodeId,
-      roads
-    );
-    if (evacRoute && evacRoute.roadIds.length > 0) {
-      const prov = createProvenance(params.mode, evacRoute.confidence, params.timelineHourOffset);
-      return {
-        ...prov,
-        id: `EVAC-EVAL-${cell.id}-${candidateShelter.id}`,
-        sourceCellId: cell.id,
-        sourceLocality: cell.localityName,
-        wardCode: cell.wardCode,
-        floodProbability: cell.floodProbability,
-        predictedDepthCm: cell.predictedDepthCm,
-        populationAtRisk: cell.populationEstimate,
-        priorityScore: Math.round(cell.floodProbability * 100),
-        priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
-        priorityReason: `Assigned to ${candidateShelter.name} via ${originNode.name}.`,
-        criticalFacilities: [],
-        nearestShelters: [
-          {
-            shelterId: candidateShelter.id,
-            shelterName: candidateShelter.name,
-            distanceKm: evacRoute.distanceKm,
-            travelTimeMin: evacRoute.travelTimeMin,
-            reachable: true,
-            remainingCapacityBefore: candidateShelter.remainingCapacity,
-          },
-        ],
-        roadAccessibilityStatus: 'ACCESSIBLE',
-        roadAccessibilityLabel: `Passable corridor to ${candidateShelter.name}`,
-        originNodeId: originNode.id,
-        originNodeName: originNode.name,
-        severity: cell.severity,
-        assigned: true,
-        assignmentSummary: `Assigned to ${candidateShelter.name} (${candidateShelter.remainingCapacity} berths remaining)`,
-        targetShelterId: candidateShelter.id,
-        targetShelterName: candidateShelter.name,
-        recommendedRouteId: `RTE-EVAC-${originNode.id}-${candidateShelter.nearestNodeId}`,
-        routeRoadIds: evacRoute.roadIds,
-        routeRoadNames: evacRoute.roadNames,
-        routeNodeIds: evacRoute.nodeIds,
-        routeLabel: 'Recommended evacuation route under current data',
-        routeRiskScore: evacRoute.riskScore,
-        distanceKm: evacRoute.distanceKm,
-        estimatedClearanceMin: evacRoute.travelTimeMin,
-        busesAssigned: Math.max(2, Math.ceil(cell.populationEstimate / 400)),
-        status: 'EVACUATING',
-        expiry: new Date(Date.now() + 15 * 60000).toISOString(),
-      };
-    }
+  if (!originHasOpenCorridors) {
+    failureReason = 'Road network disconnected';
+    failureDetail = `All outgoing road corridors from ${originNode.name} serving ${cell.localityName} (${cell.id}) are CLOSED due to flood inundation. Evacuation buses cannot enter or exit via the surface road network.`;
+  } else if (candidateWithRoute.length === 0) {
+    failureReason = 'No reachable shelter';
+    failureDetail = `Outgoing roads from ${originNode.name} are passable, but intervening river bridges or approaches to all 4 municipal shelters are currently CLOSED or cut off by flood water.`;
+  } else {
+    failureReason = 'Shelter capacity exceeded';
+    const names = candidateWithRoute.map((c) => c.shelter.name).join(', ');
+    failureDetail = `Road corridor from ${originNode.name} to municipal shelter (${candidateWithRoute[0].shelter.name}) is open, but all reachable shelters (${names}) have reached capacity. Higher-priority low-lying riverfront zones consumed available berths.`;
   }
 
-  // If no road path exists to any reachable shelter:
   const prov = createProvenance(params.mode, cell.confidence, params.timelineHourOffset);
+  const expiryDate = new Date(Date.now() + 10 * 60000);
+
   return {
     ...prov,
     id: `EVAC-EVAL-${cell.id}`,
     sourceCellId: cell.id,
-    sourceLocality: cell.localityName,
+    sourceLocality: `${cell.localityName} (${cell.wardCode})`,
     wardCode: cell.wardCode,
     floodProbability: cell.floodProbability,
     predictedDepthCm: cell.predictedDepthCm,
-    populationAtRisk: cell.populationEstimate,
+    populationAtRisk,
     priorityScore: Math.round(cell.floodProbability * 100),
     priorityTier: 'PRIORITY_3_VULNERABLE_ZONE',
-    priorityReason: 'Disconnected from shelter access road network.',
+    priorityReason: `Zone evaluated: ${failureReason}`,
     criticalFacilities: [],
-    nearestShelters: [],
-    roadAccessibilityStatus: 'DISCONNECTED',
-    roadAccessibilityLabel: 'Road network severed by closures.',
+    nearestShelters: nearestSheltersOptions,
+    roadAccessibilityStatus: originHasOpenCorridors ? 'RESTRICTED_HIGH_RISK' : 'DISCONNECTED',
+    roadAccessibilityLabel: originHasOpenCorridors
+      ? 'Corridors restricted / shelters at capacity'
+      : 'All outgoing roads flooded or closed',
     originNodeId: originNode.id,
     originNodeName: originNode.name,
     severity: cell.severity,
     assigned: false,
-    assignmentSummary: 'UNASSIGNED — Road network disconnected',
-    targetShelterId: '',
-    targetShelterName: 'None available',
-    recommendedRouteId: '',
+    assignmentSummary: `${cell.localityName} (${cell.id}) → no feasible assignment`,
+    targetShelterId: 'UNASSIGNED',
+    targetShelterName: 'no feasible assignment',
+    recommendedRouteId: 'NONE',
     routeRoadIds: [],
     routeRoadNames: [],
     routeNodeIds: [],
@@ -955,8 +1002,8 @@ export function evaluateEvacuationForSelectedCell(
     busesAssigned: 0,
     status: 'UNASSIGNED_FAILURE',
     failureBanner: 'NO FEASIBLE EVACUATION PLAN',
-    failureReason: 'Road network disconnected',
-    failureDetail: 'All outgoing roads from this area to shelters are closed or severed.',
-    expiry: new Date(Date.now() + 15 * 60000).toISOString(),
+    failureReason,
+    failureDetail,
+    expiry: expiryDate.toISOString(),
   };
 }

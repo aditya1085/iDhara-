@@ -51,6 +51,16 @@ interface IndoreFloodMapProps {
   onDismissRouteUpdate?: () => void;
   routeUpdateNotification?: RouteUpdateNotification | null;
   activeTab?: NavigationTab;
+  zoom?: number;
+  onZoomChange?: (zoom: number) => void;
+  panOffset?: { x: number; y: number };
+  onPanOffsetChange?: (pan: { x: number; y: number }) => void;
+  metricOverlay?: MapSurfaceMetric;
+  onMetricOverlayChange?: (metric: MapSurfaceMetric) => void;
+  layers?: Record<string, boolean>;
+  onLayersChange?: (layers: Record<string, boolean>) => void;
+  isLegendCollapsed?: boolean;
+  onLegendCollapsedChange?: (collapsed: boolean) => void;
 }
 
 const MAP_METRIC_OPTIONS: Array<{ id: MapSurfaceMetric; label: string }> = [
@@ -83,8 +93,18 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
   onDismissRouteUpdate,
   routeUpdateNotification,
   activeTab,
+  zoom: controlledZoom,
+  onZoomChange,
+  panOffset: controlledPan,
+  onPanOffsetChange,
+  metricOverlay: controlledMetric,
+  onMetricOverlayChange,
+  layers: controlledLayers,
+  onLayersChange,
+  isLegendCollapsed: controlledLegendCollapsed,
+  onLegendCollapsedChange,
 }) => {
-  const [layers, setLayers] = useState({
+  const [internalLayers, setInternalLayers] = useState<Record<string, boolean>>({
     pilotBoundary: true,
     heatmapGlow: true,
     riskContours: true,
@@ -98,19 +118,129 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     assetsAndShelters: true,
     cellLabels: true,
   });
+  const layers = controlledLayers ?? internalLayers;
+  const setLayers = (
+    updater:
+      | Record<string, boolean>
+      | ((prev: Record<string, boolean>) => Record<string, boolean>)
+  ) => {
+    const nextVal = typeof updater === 'function' ? updater(layers) : updater;
+    if (onLayersChange) onLayersChange(nextVal);
+    else setInternalLayers(nextVal);
+  };
 
-  const [metricOverlay, setMetricOverlay] = useState<MapSurfaceMetric>('FLOOD_PROBABILITY');
-  const [zoom, setZoom] = useState<number>(1);
-  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [internalMetric, setInternalMetric] =
+    useState<MapSurfaceMetric>('FLOOD_PROBABILITY');
+  const metricOverlay = controlledMetric ?? internalMetric;
+  const setMetricOverlay = (m: MapSurfaceMetric) => {
+    if (onMetricOverlayChange) onMetricOverlayChange(m);
+    else setInternalMetric(m);
+  };
+
+  const [internalZoom, setInternalZoom] = useState<number>(1);
+  const zoom = controlledZoom ?? internalZoom;
+  const setZoom = (updater: number | ((prev: number) => number)) => {
+    const nextVal = typeof updater === 'function' ? updater(zoom) : updater;
+    if (onZoomChange) onZoomChange(nextVal);
+    else setInternalZoom(nextVal);
+  };
+
+  const [internalPan, setInternalPan] = useState<{ x: number; y: number }>({
+    x: 0,
+    y: 0,
+  });
+  const panOffset = controlledPan ?? internalPan;
+  const setPanOffset = (
+    updater:
+      | { x: number; y: number }
+      | ((prev: { x: number; y: number }) => { x: number; y: number })
+  ) => {
+    const nextVal = typeof updater === 'function' ? updater(panOffset) : updater;
+    if (onPanOffsetChange) onPanOffsetChange(nextVal);
+    else setInternalPan(nextVal);
+  };
+
+  const [internalLegendCollapsed, setInternalLegendCollapsed] =
+    useState<boolean>(false);
+  const isLegendCollapsed =
+    controlledLegendCollapsed ?? internalLegendCollapsed;
+  const setIsLegendCollapsed = (
+    updater: boolean | ((prev: boolean) => boolean)
+  ) => {
+    const nextVal =
+      typeof updater === 'function' ? updater(isLegendCollapsed) : updater;
+    if (onLegendCollapsedChange) onLegendCollapsedChange(nextVal);
+    else setInternalLegendCollapsed(nextVal);
+  };
+
   const [hoveredInfo, setHoveredInfo] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
   const layerMenuRef = useRef<HTMLDivElement>(null);
-  const [isRouteErrorDismissed, setIsRouteErrorDismissed] = useState<boolean>(false);
-  const [isLegendCollapsed, setIsLegendCollapsed] = useState<boolean>(false);
+  const [isRouteErrorDismissed, setIsRouteErrorDismissed] =
+    useState<boolean>(false);
   const [isScaleVisible, setIsScaleVisible] = useState<boolean>(false);
+
+  // Map panning via mouse drag
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{
+    x: number;
+    y: number;
+    panX: number;
+    panY: number;
+    moved: boolean;
+  }>({
+    x: 0,
+    y: 0,
+    panX: 0,
+    panY: 0,
+    moved: false,
+  });
+
+  const handleViewportMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (
+      target.closest('button') ||
+      target.closest('input') ||
+      target.closest('select') ||
+      target.closest('.interactive-panel')
+    ) {
+      return;
+    }
+    setIsDragging(true);
+    dragStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      panX: panOffset.x,
+      panY: panOffset.y,
+      moved: false,
+    };
+  };
+
+  const handleViewportMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    const dx = (e.clientX - dragStartRef.current.x) / (zoom || 1);
+    const dy = (e.clientY - dragStartRef.current.y) / (zoom || 1);
+    if (Math.hypot(dx, dy) > 4) {
+      dragStartRef.current.moved = true;
+    }
+    const nextPanX = Math.max(
+      -480,
+      Math.min(480, Math.round(dragStartRef.current.panX + dx))
+    );
+    const nextPanY = Math.max(
+      -480,
+      Math.min(480, Math.round(dragStartRef.current.panY + dy))
+    );
+    setPanOffset({ x: nextPanX, y: nextPanY });
+  };
+
+  const handleViewportMouseUp = () => {
+    setIsDragging(false);
+  };
 
   // Close search dropdown and layer dropdown on click outside
   useEffect(() => {
@@ -142,15 +272,19 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     setIsRouteErrorDismissed(false);
   }, [activeRoute?.id, activeRoute?.feasible]);
 
-  // Center and focus map when selectedArea changes
+  // Center and focus map only when a NEW selectedArea is chosen
+  const prevSelectedAreaIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (selectedArea) {
+    if (selectedArea && selectedArea.id !== prevSelectedAreaIdRef.current) {
+      prevSelectedAreaIdRef.current = selectedArea.id;
       const cellCenterX = (selectedArea.col + 0.5) * cellSize;
       const cellCenterY = (selectedArea.row + 0.5) * cellSize;
       const offsetX = Math.max(-320, Math.min(320, 500 - cellCenterX));
       const offsetY = Math.max(-320, Math.min(320, 500 - cellCenterY));
       setPanOffset({ x: Math.round(offsetX), y: Math.round(offsetY) });
       setZoom((z) => (z < 1.3 ? 1.35 : z));
+    } else if (!selectedArea) {
+      prevSelectedAreaIdRef.current = null;
     }
   }, [selectedArea?.id, cellSize]);
 
@@ -159,7 +293,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
     return findNearestNodeForCell(selectedArea).id;
   }, [selectedArea]);
 
-  const toggleLayer = (key: keyof typeof layers) => {
+  const toggleLayer = (key: string) => {
     setLayers((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
@@ -300,11 +434,15 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
   return (
     <div className="relative flex flex-col w-full h-full bg-[#05080E] border border-slate-800/90 select-none overflow-hidden">
-      {/* Top Map Toolbar: Search, Pilot Overview Button, 5-Metric Surface Switcher, Layer & Zoom Controls */}
-      <div className="flex items-center justify-between gap-2 px-3 h-10 min-h-[40px] max-h-[40px] bg-[#0A0F1A] border-b border-slate-800/90 z-30 shrink-0 relative overflow-visible">
+      {/* Top Map Toolbar: Search, Pilot Overview Button, 6-Metric Surface Switcher, Layer & Zoom Controls */}
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        className="flex items-center justify-between gap-1.5 sm:gap-2 px-2.5 sm:px-3 h-10 min-h-[40px] bg-[#0A0F1A] border-b border-slate-800/90 z-30 shrink-0 relative overflow-visible"
+      >
         {/* Left: Map Search Input + Pilot Overview Reset */}
         <div ref={searchContainerRef} className="flex items-center gap-1.5 relative shrink-0">
-          <div className="relative w-44 sm:w-60">
+          <div className="relative w-36 sm:w-52 md:w-60">
             <input
               type="text"
               value={searchQuery}
@@ -343,17 +481,28 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
             {isSearchOpen && (
               <div
-                className="absolute left-0 top-full mt-1 w-80 sm:w-96 bg-[#0B101B] border border-slate-700 shadow-2xl z-50 max-h-72 overflow-y-auto"
+                className="absolute left-0 top-full mt-1 w-80 sm:w-96 bg-[#0B101B] border border-slate-700 shadow-2xl z-50 max-h-72 overflow-y-auto overscroll-contain"
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="sticky top-0 bg-[#0E1524] px-3 py-1.5 border-b border-slate-800 text-[10.5px] font-mono text-cyan-300 flex items-center justify-between z-10">
-                  <span>
-                    {searchQuery.trim()
-                      ? `MATCHING ENTITIES (${searchResults.length})`
-                      : `ALL 5×5 KM STUDY AREAS (${searchResults.length})`}
-                  </span>
-                  <span className="text-[9.5px] text-slate-400">Click to focus on map</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="truncate">
+                      {searchQuery.trim()
+                        ? `MATCHING ENTITIES (${searchResults.length})`
+                        : `ALL 5×5 KM STUDY AREAS (${searchResults.length})`}
+                    </span>
+                    {searchQuery.trim() && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        className="text-[9.5px] text-cyan-400 underline hover:text-cyan-200 cursor-pointer shrink-0"
+                      >
+                        Show all 64
+                      </button>
+                    )}
+                  </div>
+                  <span className="text-[9.5px] text-slate-400 shrink-0">Click to focus</span>
                 </div>
 
                 {searchResults.length === 0 ? (
@@ -410,8 +559,8 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           </button>
         </div>
 
-        {/* Center: 5-Way Map Surface Switcher (Flood probability | Severity | Uncertainty | Data confidence | Rainfall) */}
-        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 overflow-x-auto no-scrollbar min-w-0 shrink">
+        {/* Center: 6-Way Map Surface Switcher (Flood probability | Severity | Uncertainty | Data confidence | Rainfall | Pred vs Obs) */}
+        <div className="flex items-center gap-1 bg-[#060911] p-0.5 border border-slate-800 overflow-x-auto min-w-0 shrink">
           {MAP_METRIC_OPTIONS.map((opt) => {
             const active = metricOverlay === opt.id;
             return (
@@ -419,7 +568,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                 key={opt.id}
                 type="button"
                 onClick={() => setMetricOverlay(opt.id)}
-                className={`px-2.5 py-1 text-[11px] font-mono transition-colors whitespace-nowrap cursor-pointer border ${
+                className={`px-2 py-0.5 text-[10.5px] font-mono transition-colors whitespace-nowrap cursor-pointer border ${
                   active
                     ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/50 font-semibold'
                     : 'border-transparent text-slate-400 hover:text-slate-200'
@@ -432,11 +581,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         </div>
 
         {/* Right: Layer Control Dropdown & Zoom Controls */}
-        <div ref={layerMenuRef} className="flex items-center gap-2 font-mono text-xs relative shrink-0">
+        <div ref={layerMenuRef} className="flex items-center gap-1.5 sm:gap-2 font-mono text-xs relative shrink-0">
           <button
             type="button"
             onClick={() => setShowLayerMenu((v) => !v)}
-            className={`px-2.5 py-1 border text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
+            className={`px-2 sm:px-2.5 py-1 border text-[11px] whitespace-nowrap transition-colors cursor-pointer ${
               showLayerMenu
                 ? 'bg-cyan-950/60 border-cyan-500/60 text-cyan-300'
                 : 'bg-[#0D1422] border-slate-700 text-slate-200 hover:bg-slate-800'
@@ -447,22 +596,36 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
           {showLayerMenu && (
             <div
-              className="absolute right-0 top-full mt-1 w-72 sm:w-80 bg-[#0B101B] border border-slate-700 shadow-2xl p-2.5 z-50 text-[11px] max-h-[min(75vh,480px)] flex flex-col"
+              className="absolute right-0 top-full mt-1 w-72 sm:w-80 bg-[#0B101B] border border-slate-700 shadow-2xl p-2.5 z-50 text-[11px] max-h-[min(75vh,480px)] flex flex-col overscroll-contain interactive-panel"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between text-slate-300 pb-2 mb-1 border-b border-slate-800 font-mono shrink-0">
-                <span className="font-bold text-cyan-300">
+                <span className="font-bold text-cyan-300 text-[10.5px]">
                   GEOSPATIAL LAYERS ({Object.values(layers).filter(Boolean).length}/{Object.keys(layers).length})
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setShowLayerMenu(false)}
-                  className="text-slate-400 hover:text-white px-1.5 py-0.5 hover:bg-slate-800 font-mono text-xs cursor-pointer"
-                  title="Close Layers Panel"
-                >
-                  ✕ Close
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLayers((prev) =>
+                        Object.fromEntries(Object.keys(prev).map((k) => [k, true]))
+                      )
+                    }
+                    className="text-[9.5px] px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 cursor-pointer"
+                    title="Enable all layers"
+                  >
+                    All ON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLayerMenu(false)}
+                    className="text-slate-400 hover:text-white px-1.5 py-0.5 hover:bg-slate-800 font-mono text-xs cursor-pointer"
+                    title="Close Layers Panel"
+                  >
+                    ✕ Close
+                  </button>
+                </div>
               </div>
               <div className="overflow-y-auto space-y-1 pr-1 flex-1 min-h-0">
                 {[
@@ -484,7 +647,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     <button
                       key={item.key}
                       type="button"
-                      onClick={() => toggleLayer(item.key as keyof typeof layers)}
+                      onClick={() => toggleLayer(item.key)}
                       className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-slate-800/80 text-left transition-colors cursor-pointer rounded-xs"
                     >
                       <div className="flex flex-col min-w-0 pr-2">
@@ -509,27 +672,32 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </div>
           )}
 
-          {/* Zoom Controls: +, − are always visible and clickable */}
+          {/* Zoom Controls: +, − and Zoom Percentage */}
           <div className="flex items-center bg-[#060911] border border-slate-700">
             <button
               type="button"
-              onClick={() => setZoom((z) => Math.max(1, Number((z - 0.2).toFixed(2))))}
+              onClick={() => setZoom((z) => Math.max(0.8, Number((z - 0.2).toFixed(2))))}
               className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer text-xs"
-              title="Zoom Out"
+              title="Zoom Out (Min 80%)"
             >
               −
             </button>
-            <span
-              className="px-2 py-1 text-[11px] text-slate-300 tabular-nums border-x border-slate-800"
-              title="Current Zoom Level"
-            >
-              {Math.round(zoom * 100)}%
-            </span>
             <button
               type="button"
-              onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.2).toFixed(2))))}
+              onClick={() => {
+                setZoom(1);
+                setPanOffset({ x: 0, y: 0 });
+              }}
+              className="px-2 py-1 text-[11px] text-slate-300 tabular-nums border-x border-slate-800 hover:text-cyan-300 cursor-pointer"
+              title="Click to reset zoom to 100%"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom((z) => Math.min(2.2, Number((z + 0.2).toFixed(2))))}
               className="px-2 py-1 text-slate-300 hover:bg-slate-800 whitespace-nowrap cursor-pointer text-xs"
-              title="Zoom In"
+              title="Zoom In (Max 220%)"
             >
               +
             </button>
@@ -537,11 +705,23 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
         </div>
       </div>
 
-      {/* Main Interactive SVG Geospatial Viewport */}
-      <div className="relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070D] geospatial-grid-bg">
+      {/* Main Interactive SVG Geospatial Viewport with Click & Drag to Pan */}
+      <div
+        onMouseDown={handleViewportMouseDown}
+        onMouseMove={handleViewportMouseMove}
+        onMouseUp={handleViewportMouseUp}
+        onMouseLeave={handleViewportMouseUp}
+        className={`relative flex-1 w-full h-full overflow-hidden flex items-center justify-center bg-[#04070D] geospatial-grid-bg select-none ${
+          isDragging ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+      >
         {/* Top-Left: Selected Area Operational Directive & Action Card, or Pilot Bounds Indicator */}
         {selectedArea ? (
-          <div className="absolute top-2.5 left-2.5 z-20 flex flex-wrap items-center gap-2.5 bg-[#090F1C]/95 border border-cyan-500/80 px-3 py-2 font-mono text-[11px] shadow-2xl backdrop-blur-xs max-w-xl">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2.5 left-2.5 z-20 flex flex-wrap items-center gap-2.5 bg-[#090F1C]/95 border border-cyan-500/80 px-3 py-2 font-mono text-[11px] shadow-2xl backdrop-blur-xs max-w-[calc(100%-1.25rem)] sm:max-w-xl interactive-panel"
+          >
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0" />
               <div className="flex flex-col">
@@ -604,7 +784,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         {/* Top-Right Live Route Subscription / Rerouting Status Banner */}
         {routeUpdateNotification && (
-          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#160B08]/95 border border-amber-400 px-3 py-2 font-mono text-[11px] shadow-2xl">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#160B08]/95 border border-amber-400 px-3 py-2 font-mono text-[11px] shadow-2xl interactive-panel"
+          >
             <div className="flex items-center justify-between gap-2 text-amber-300 font-bold border-b border-amber-900/60 pb-1 mb-1">
               <span>⚡ {routeUpdateNotification.bannerTitle}</span>
               <div className="flex items-center gap-1.5">
@@ -634,7 +818,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
           activeRoute &&
           !activeRoute.feasible &&
           !isRouteErrorDismissed && (
-          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs max-h-[min(80vh,520px)] overflow-y-auto overscroll-contain interactive-panel"
+          >
             <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
@@ -718,7 +906,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         {/* Active Feasible Route Banner */}
         {routeStatus === 'FEASIBLE' && activeRoute && activeRoute.feasible && (
-          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#091524]/95 border border-cyan-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#091524]/95 border border-cyan-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs interactive-panel"
+          >
             <div className="flex items-center justify-between gap-2 border-b border-cyan-900/60 pb-1 mb-1">
               <span className="text-cyan-300 font-bold flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-cyan-400" />
@@ -749,7 +941,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         {/* Active Evacuation Route Banner */}
         {evacuationStatus === 'FEASIBLE' && evacuationRoute && evacuationRoute.assigned && (
-          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#061814]/95 border border-emerald-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#061814]/95 border border-emerald-400/80 shadow-2xl p-2.5 font-mono text-[11px] backdrop-blur-xs interactive-panel"
+          >
             <div className="flex items-center justify-between gap-2 border-b border-emerald-900/60 pb-1 mb-1">
               <span className="text-emerald-300 font-bold flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-400" />
@@ -780,7 +976,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         {/* Infeasible Evacuation Plan Banner */}
         {evacuationStatus === 'NO_FEASIBLE_EVACUATION' && evacuationRoute && (
-          <div className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute top-2.5 right-2.5 z-20 max-w-sm bg-[#16080B]/95 border border-rose-500/80 shadow-2xl p-3 font-mono text-[11px] backdrop-blur-xs interactive-panel"
+          >
             <div className="flex items-center justify-between gap-2 border-b border-rose-900/60 pb-1 mb-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
                 <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
@@ -1057,6 +1257,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   key={cell.id}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (dragStartRef.current.moved) return;
                     onSelectTarget({ type: 'CELL', id: cell.id });
                     onSelectArea(cell);
                   }}
@@ -1296,6 +1497,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   key={road.id}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (dragStartRef.current.moved) return;
                     onSelectTarget({ type: 'ROAD', id: road.id });
                   }}
                   onMouseEnter={() =>
@@ -1717,6 +1919,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     transform={`translate(${asset.x}, ${asset.y})`}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (dragStartRef.current.moved) return;
                       onSelectTarget({ type: 'ASSET', id: asset.id });
                     }}
                     onMouseEnter={() =>
@@ -1790,6 +1993,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                     transform={`translate(${sh.x}, ${sh.y})`}
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (dragStartRef.current.moved) return;
                       onSelectTarget({ type: 'SHELTER', id: sh.id });
                     }}
                     onMouseEnter={() =>
@@ -1868,6 +2072,7 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
                   transform={`translate(${s.x}, ${s.y - 18})`}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (dragStartRef.current.moved) return;
                     onSelectTarget({ type: 'SENSOR', id: s.id });
                   }}
                   onMouseEnter={() =>
@@ -1954,11 +2159,15 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
 
         {/* Floating Bottom-Left Clean Context-Aware Legend */}
         {isLegendCollapsed ? (
-          <div className="absolute bottom-3 left-3 z-10">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-3 left-3 z-10 interactive-panel"
+          >
             <button
               type="button"
               onClick={() => setIsLegendCollapsed(false)}
-              className="px-2.5 py-1 bg-[#090D16]/90 hover:bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10.5px] shadow-lg flex items-center gap-1.5 transition-colors"
+              className="px-2.5 py-1 bg-[#090D16]/90 hover:bg-slate-800 border border-slate-700 text-slate-300 font-mono text-[10.5px] shadow-lg flex items-center gap-1.5 transition-colors cursor-pointer"
               title="Expand Map Legend"
             >
               <span>▤</span>
@@ -1966,7 +2175,11 @@ export const IndoreFloodMap: React.FC<IndoreFloodMapProps> = ({
             </button>
           </div>
         ) : (
-          <div className="absolute bottom-3 left-3 z-10 bg-[#090D16]/95 border border-slate-800 px-3 py-2 text-[11px] font-mono text-slate-300 max-w-sm sm:max-w-md shadow-xl">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute bottom-3 left-3 z-10 bg-[#090D16]/95 border border-slate-800 px-3 py-2 text-[11px] font-mono text-slate-300 max-w-sm sm:max-w-md shadow-xl max-h-[min(50vh,320px)] overflow-y-auto overscroll-contain interactive-panel"
+          >
             <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1 font-semibold pb-1 border-b border-slate-800">
               <span className="truncate mr-2">
                 {metricOverlay === 'FLOOD_PROBABILITY' && 'FLOOD PROBABILITY & WARNING LEVEL'}
